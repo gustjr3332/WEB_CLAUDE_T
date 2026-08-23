@@ -3,8 +3,7 @@
 // apps-script/Code.gs 배포 방법은 apps-script/README.md 참고.
 window.LIKE_SYNC_CONFIG = {
   APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbwBCfvgIlfVaBLSMDOEhOwHUsGqkLAtlCwTRwzZUB1_klvMS2Rbj_SL1QnUNxFcKB9VUg/exec",
-  // 전송 실패한 클릭을 재시도하는 주기 (ms). 정상 클릭은 즉시 전송되므로 이 값은
-  // 네트워크 순간 장애 복구용일 뿐, 집계 정확도와는 무관.
-  RETRY_INTERVAL_MS: 15000
+  // 19:00 전송 시각이 됐는지 확인하는 주기 (ms). 1분이면 충분.
+  CHECK_INTERVAL_MS: 60000
 };
 //AKfycbwBCfvgIlfVaBLSMDOEhOwHUsGqkLAtlCwTRwzZUB1_klvMS2Rbj_SL1QnUNxFcKB9VUg

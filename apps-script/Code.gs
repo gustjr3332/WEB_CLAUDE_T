@@ -1,28 +1,25 @@
 // 대상 스프레드시트: https://docs.google.com/spreadsheets/d/1MOCGapRs-sc1civpI3wwV0BsYm85gMSTKsHoZOVmHJA
 //
-// 시트 구성 (탭 3개, 각 탭은 속성 중복 없는 단일 테이블):
-//   LIKE                 - 정규화된 원본 데이터: Date, Hour, PostID, PostTitle, LikeCount, LastUpdated
-//                          (날짜+시간+포스트 단위 사실 테이블. "모든 데이터"의 단일 출처)
-//   Pending              - 클릭 원시 로그 (내부 처리용, 트리거 실행 후 비워짐)
-//   일별 좋아요 집계      - 대시보드용 요약: 날짜, 오늘의 총 좋아요 수, 최다 좋아요 포스트
+// 시트 구성 (탭 2개):
+//   LIKE                 - 정규화된 원본 데이터: Date, PostID, PostTitle, LikeCount, LastUpdated
+//                          (날짜+포스트 단위 사실 테이블. 내부용이라 기본적으로 숨김 처리)
+//   일별 좋아요 집계      - 실제로 눈으로 보는 대시보드: 날짜, 오늘의 총 좋아요 수, 최다 좋아요 포스트
 //                          (매번 LIKE 테이블에서 다시 계산해서 덮어씀 — 별도로 값을 누적하지 않음)
 //
-// 흐름:
-//   1) doPost: 클릭 1건마다 즉시 Pending에 원시 로그로 적재 (빠른 응답)
-//   2) aggregateAndClearPending: 시간 기반 트리거(1분마다, 브라우저와 무관)로
-//      Pending을 읽어 LIKE에 합산하고, 영향받은 날짜의 "일별 좋아요 집계"를 재계산한 뒤
-//      Pending을 비움.
+// 흐름 (2026-08 개편):
+//   브라우저는 클릭할 때마다 서버로 보내지 않고 localStorage에만 누적하다가, 방문자 로컬 시각
+//   19:00을 넘긴 첫 체크에서 그날 하루치 누적분을 한 번에 배치로 전송한다 (script.js 참고).
+//   doPost가 이 배치를 받아 곧바로 LIKE에 합산하고 "일별 좋아요 집계"를 재계산한다.
+//   (예전 버전의 "클릭마다 즉시 전송 + Pending + 1분 트리거" 구조는 더 이상 쓰지 않는다.)
 //
-// 배포/트리거 설정 방법은 apps-script/README.md 참고.
+// 배포 방법은 apps-script/README.md 참고.
 
 var SPREADSHEET_ID = "1MOCGapRs-sc1civpI3wwV0BsYm85gMSTKsHoZOVmHJA";
 
 var LIKE_SHEET_NAME = "LIKE";
-var PENDING_SHEET_NAME = "Pending";
 var DAILY_SUMMARY_SHEET_NAME = "일별 좋아요 집계";
 
-var LIKE_HEADER = ["Date", "Hour", "PostID", "PostTitle", "LikeCount", "LastUpdated"];
-var PENDING_HEADER = ["ServerTimestamp", "PostID", "PostTitle"];
+var LIKE_HEADER = ["Date", "PostID", "PostTitle", "LikeCount", "LastUpdated"];
 var DAILY_SUMMARY_HEADER = ["날짜", "오늘의 총 좋아요 수", "최다 좋아요 포스트"];
 
 function getOrCreateSheet_(ss, name, header) {
@@ -101,18 +98,19 @@ function upsertOverwriteRow_(sheet, keyValue, keyCol, rowValues, tz) {
 }
 
 // LIKE 테이블에서 특정 날짜의 데이터를 다시 훑어 "일별 좋아요 집계" 한 행을 갱신한다.
+// 최다 좋아요 포스트 칸에는 "제목 (N개)" 형식으로 개수까지 같이 적는다.
 function recomputeDailySummary_(likeSheet, dailySheet, date, tz) {
   var lastRow = likeSheet.getLastRow();
   var totalCount = 0;
   var postCounts = {}; // postId -> {title, count}
 
   if (lastRow > 1) {
-    var values = likeSheet.getRange(2, 1, lastRow - 1, 5).getValues(); // Date,Hour,PostID,PostTitle,LikeCount
+    var values = likeSheet.getRange(2, 1, lastRow - 1, 4).getValues(); // Date,PostID,PostTitle,LikeCount
     values.forEach(function (row) {
       if (normalizeDateStr_(row[0], tz) !== date) return;
-      var postId = row[2];
-      var title = row[3];
-      var count = Number(row[4]) || 0;
+      var postId = row[1];
+      var title = row[2];
+      var count = Number(row[3]) || 0;
 
       totalCount += count;
       if (!postCounts[postId]) postCounts[postId] = { title: title, count: 0 };
@@ -129,7 +127,9 @@ function recomputeDailySummary_(likeSheet, dailySheet, date, tz) {
     }
   });
 
-  upsertOverwriteRow_(dailySheet, date, 1, [date, totalCount, topTitle], tz);
+  var topDisplay = topCount > 0 ? topTitle + " (" + topCount + "개)" : "";
+
+  upsertOverwriteRow_(dailySheet, date, 1, [date, totalCount, topDisplay], tz);
 
   var dailyLastRow = dailySheet.getLastRow();
   if (dailyLastRow > 2) {
@@ -137,23 +137,42 @@ function recomputeDailySummary_(likeSheet, dailySheet, date, tz) {
   }
 }
 
-// 클릭 즉시 호출됨. 무거운 집계 연산 없이 Pending에만 빠르게 적재한다.
+// 하루치 배치를 한 번에 받는다: { date: "yyyy-MM-dd", posts: { postId: {title, count} } }
+// date는 클라이언트가 계산한 "19:00 기준 버킷 날짜"를 그대로 신뢰한다 (실제로 좋아요가
+// 눌린 날짜를 아는 건 클라이언트뿐이라, 서버 수신 시각을 쓰면 오히려 하루씩 밀릴 수 있음).
 function doPost(e) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
     var body = JSON.parse(e.postData.contents);
-    var postId = body.postId;
-    var title = body.title || "";
-    if (!postId) {
-      return jsonOutput_({ status: "error", message: "postId is required" });
+    var date = body.date;
+    var posts = body.posts || {};
+    if (!date) {
+      return jsonOutput_({ status: "error", message: "date is required" });
     }
 
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    var pendingSheet = getOrCreateSheet_(ss, PENDING_SHEET_NAME, PENDING_HEADER);
-    pendingSheet.appendRow([new Date(), postId, title]);
+    var tz = Session.getScriptTimeZone();
+    var now = new Date();
 
-    return jsonOutput_({ status: "ok" });
+    var likeSheet = getOrCreateSheet_(ss, LIKE_SHEET_NAME, LIKE_HEADER);
+    likeSheet.getRange("A:A").setNumberFormat("@"); // Date 컬럼을 텍스트로 고정해 자동 변환 방지
+
+    var updated = 0;
+    Object.keys(posts).forEach(function (postId) {
+      var p = posts[postId];
+      if (!p || !p.count) return;
+      upsertSum_(likeSheet, [date, postId], 2, 4, p.title, p.count, now, tz);
+      updated++;
+    });
+
+    if (updated > 0) {
+      var dailySheet = getOrCreateSheet_(ss, DAILY_SUMMARY_SHEET_NAME, DAILY_SUMMARY_HEADER);
+      dailySheet.getRange("A:A").setNumberFormat("@");
+      recomputeDailySummary_(likeSheet, dailySheet, date, tz);
+    }
+
+    return jsonOutput_({ status: "ok", postsUpdated: updated });
   } catch (err) {
     return jsonOutput_({ status: "error", message: err.message });
   } finally {
@@ -161,136 +180,42 @@ function doPost(e) {
   }
 }
 
-// 시간 기반 트리거로 1분마다 실행됨 (브라우저 상태와 무관, Google 서버에서 동작).
-function aggregateAndClearPending() {
-  var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
-  try {
-    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    var pendingSheet = getOrCreateSheet_(ss, PENDING_SHEET_NAME, PENDING_HEADER);
-
-    var lastRow = pendingSheet.getLastRow();
-    if (lastRow <= 1) return; // 처리할 데이터 없음
-
-    var rows = pendingSheet.getRange(2, 1, lastRow - 1, 3).getValues();
-    var tz = Session.getScriptTimeZone();
-
-    var hourlySums = {}; // key: date|hour|postId
-    var touchedDates = {};
-
-    rows.forEach(function (row) {
-      var ts = row[0];
-      var postId = row[1];
-      var title = row[2];
-      if (!postId) return;
-
-      var date = Utilities.formatDate(ts, tz, "yyyy-MM-dd");
-      var hour = Number(Utilities.formatDate(ts, tz, "H"));
-
-      var hKey = date + "|" + hour + "|" + postId;
-      if (!hourlySums[hKey]) {
-        hourlySums[hKey] = { date: date, hour: hour, postId: postId, title: title, count: 0 };
-      }
-      hourlySums[hKey].count++;
-      touchedDates[date] = true;
-    });
-
-    var likeSheet = getOrCreateSheet_(ss, LIKE_SHEET_NAME, LIKE_HEADER);
-    likeSheet.getRange("A:A").setNumberFormat("@"); // Date 컬럼을 텍스트로 고정해 자동 변환 방지
-    var now = new Date();
-
-    Object.keys(hourlySums).forEach(function (k) {
-      var s = hourlySums[k];
-      upsertSum_(likeSheet, [s.date, s.hour, s.postId], 3, 5, s.title, s.count, now, tz);
-    });
-
-    // 합산이 끝난 원시 로그는 삭제해 Pending 시트 크기를 작게 유지한다.
-    pendingSheet.deleteRows(2, lastRow - 1);
-
-    var dailySheet = getOrCreateSheet_(ss, DAILY_SUMMARY_SHEET_NAME, DAILY_SUMMARY_HEADER);
-    dailySheet.getRange("A:A").setNumberFormat("@"); // 날짜 컬럼을 텍스트로 고정해 자동 변환 방지
-    Object.keys(touchedDates).forEach(function (date) {
-      recomputeDailySummary_(likeSheet, dailySheet, date, tz);
-    });
-  } finally {
-    lock.releaseLock();
-  }
+function doGet(e) {
+  return jsonOutput_({ status: "ok", message: "LIKE aggregator web app is running." });
 }
 
-// 기존에 LIKE 시트가 Post/Hourly/Daily/Pending 열 블록으로 되어 있던 이전 버전 데이터를
-// 새 정규화 구조로 옮기는 1회성 함수. Apps Script 편집기에서 딱 한 번만 수동 실행할 것.
-function migrateToNormalizedSheets() {
+// ── 1회성 관리용 함수 (Apps Script 편집기에서 필요할 때만 수동 실행) ─────────────
+
+// 이전 스키마(Date, Hour, PostID, PostTitle, LikeCount, LastUpdated)로 쌓여 있던 LIKE
+// 데이터를 새 스키마(Hour 없이 날짜+포스트 단위)로 합쳐서 옮긴다. 기존 데이터를 잃지
+// 않기 위한 1회성 함수. 여러 번 실행해도 안전하다 (매번 다시 합쳐서 같은 결과가 나옴).
+function migrateDropHourColumn() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var likeSheet = ss.getSheetByName(LIKE_SHEET_NAME);
   if (!likeSheet) {
-    Logger.log("LIKE 시트가 없어 마이그레이션할 데이터가 없습니다.");
+    Logger.log("LIKE 시트가 없어 옮길 데이터가 없습니다.");
     return;
   }
 
-  var OLD_HOURLY_START_COL = 6; // 이전 버전의 Hourly 블록(F열) 위치
-  var lastRow = likeSheet.getLastRow();
-  var extracted = [];
-
-  if (lastRow > 1) {
-    var maxScanRows = likeSheet.getMaxRows() - 1;
-    var values = likeSheet.getRange(2, OLD_HOURLY_START_COL, maxScanRows, 6).getValues();
-    values.forEach(function (row) {
-      if (row[0] !== "" && row[0] !== null && row[0] !== undefined) {
-        extracted.push(row); // Date, Hour, PostID, PostTitle, LikeCount, LastUpdated
-      }
-    });
-  }
-
-  // 이전 블록 레이아웃 전체 삭제 (A:U 범위 정도면 충분히 덮음)
-  likeSheet.getRange(1, 1, likeSheet.getMaxRows(), 21).clearContent();
-
-  likeSheet.getRange(1, 1, 1, LIKE_HEADER.length).setValues([LIKE_HEADER]);
-  if (extracted.length) {
-    likeSheet.getRange(2, 1, extracted.length, 6).setValues(extracted);
-  }
-
-  getOrCreateSheet_(ss, PENDING_SHEET_NAME, PENDING_HEADER);
-  var dailySheet = getOrCreateSheet_(ss, DAILY_SUMMARY_SHEET_NAME, DAILY_SUMMARY_HEADER);
-  dailySheet.getRange("A:A").setNumberFormat("@");
-
   var tz = Session.getScriptTimeZone();
-  var dates = {};
-  extracted.forEach(function (row) {
-    dates[normalizeDateStr_(row[0], tz)] = true;
-  });
-  Object.keys(dates).forEach(function (date) {
-    recomputeDailySummary_(likeSheet, dailySheet, date, tz);
-  });
-
-  Logger.log("마이그레이션 완료: LIKE " + extracted.length + "행 이전, 일별 집계 " + Object.keys(dates).length + "일 계산됨.");
-}
-
-// LIKE 시트의 Date 컬럼이 문자열/Date 타입으로 뒤섞여서 (날짜,시간,포스트) 합산이
-// 제대로 안 되고 중복 행이 쌓인 경우를 고치는 1회성 복구 함수. 모든 행을 다시 훑어
-// 같은 (날짜,시간,포스트)를 하나로 합치고, 날짜를 텍스트로 통일해서 다시 쓴 뒤
-// 일별 좋아요 집계도 전부 재계산한다. Apps Script 편집기에서 딱 한 번만 실행할 것.
-function repairDuplicateLikeRows() {
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var likeSheet = getOrCreateSheet_(ss, LIKE_SHEET_NAME, LIKE_HEADER);
-  var tz = Session.getScriptTimeZone();
-
   var lastRow = likeSheet.getLastRow();
-  var merged = {}; // key: date|hour|postId -> {date,hour,postId,title,count,lastUpdated}
+  var lastCol = likeSheet.getLastColumn();
+  var merged = {}; // key: date|postId
 
-  if (lastRow > 1) {
+  if (lastRow > 1 && lastCol >= 6) {
+    // 이전 스키마: Date(1), Hour(2), PostID(3), PostTitle(4), LikeCount(5), LastUpdated(6)
     var values = likeSheet.getRange(2, 1, lastRow - 1, 6).getValues();
     values.forEach(function (row) {
       var date = normalizeDateStr_(row[0], tz);
-      var hour = row[1];
       var postId = row[2];
       var title = row[3];
       var count = Number(row[4]) || 0;
       var lastUpdated = row[5];
       if (!postId) return;
 
-      var key = date + "|" + hour + "|" + postId;
+      var key = date + "|" + postId;
       if (!merged[key]) {
-        merged[key] = { date: date, hour: hour, postId: postId, title: title, count: 0, lastUpdated: lastUpdated };
+        merged[key] = { date: date, postId: postId, title: title, count: 0, lastUpdated: lastUpdated };
       }
       merged[key].count += count;
       if (lastUpdated instanceof Date && (!(merged[key].lastUpdated instanceof Date) || lastUpdated > merged[key].lastUpdated)) {
@@ -298,18 +223,21 @@ function repairDuplicateLikeRows() {
         merged[key].title = title;
       }
     });
+  } else if (lastRow > 1) {
+    Logger.log("이미 새 스키마(Hour 없음)로 보입니다. 옮길 필요 없이 그대로 둡니다.");
+    return;
   }
 
   var rows = Object.keys(merged).map(function (k) {
     var m = merged[k];
-    return [m.date, m.hour, m.postId, m.title, m.count, m.lastUpdated];
+    return [m.date, m.postId, m.title, m.count, m.lastUpdated];
   });
 
-  likeSheet.getRange(2, 1, Math.max(likeSheet.getMaxRows() - 1, rows.length), 6).clearContent();
+  likeSheet.getRange(1, 1, likeSheet.getMaxRows(), Math.max(lastCol, 5)).clearContent();
   likeSheet.getRange("A:A").setNumberFormat("@");
   likeSheet.getRange(1, 1, 1, LIKE_HEADER.length).setValues([LIKE_HEADER]);
   if (rows.length) {
-    likeSheet.getRange(2, 1, rows.length, 6).setValues(rows);
+    likeSheet.getRange(2, 1, rows.length, 5).setValues(rows);
   }
 
   var dailySheet = getOrCreateSheet_(ss, DAILY_SUMMARY_SHEET_NAME, DAILY_SUMMARY_HEADER);
@@ -327,22 +255,27 @@ function repairDuplicateLikeRows() {
     recomputeDailySummary_(likeSheet, dailySheet, date, tz);
   });
 
-  Logger.log(
-    "복구 완료: LIKE " + rows.length + "행으로 정리(합산), 일별 집계 " + Object.keys(dates).length + "일 재계산됨."
-  );
+  Logger.log("이전 완료: LIKE " + rows.length + "행(날짜+포스트 단위), 일별 집계 " + Object.keys(dates).length + "일 재계산됨.");
 }
 
-// Apps Script 편집기에서 이 함수를 한 번만 수동 실행하면 1분 주기 트리거가 등록된다.
-// 이미 등록되어 있다면 다시 실행해도 중복 없이 안전하다 (기존 트리거를 지우고 새로 만듦).
-function createTrigger() {
+// LIKE 탭은 내부용 원본 데이터라 화면에는 "일별 좋아요 집계"만 보이면 되므로 숨긴다.
+// 필요하면 시트 하단 탭에서 우클릭 → 숨기기 취소로 언제든 다시 볼 수 있다.
+function hideRawDataSheet() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var likeSheet = ss.getSheetByName(LIKE_SHEET_NAME);
+  if (likeSheet) likeSheet.hideSheet();
+
+  var pendingSheet = ss.getSheetByName("Pending");
+  if (pendingSheet) pendingSheet.hideSheet();
+}
+
+// 예전 버전에서 등록했던 1분 주기 트리거(aggregateAndClearPending)를 정리한다.
+// 그 함수는 이번 개편으로 코드에서 삭제됐기 때문에, 트리거가 남아있으면 매분 실행
+// 오류 알림 메일만 쌓이게 된다. Apps Script 편집기에서 한 번만 실행할 것.
+function removeOldTrigger() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === "aggregateAndClearPending") {
       ScriptApp.deleteTrigger(t);
     }
   });
-  ScriptApp.newTrigger("aggregateAndClearPending").timeBased().everyMinutes(1).create();
-}
-
-function doGet(e) {
-  return jsonOutput_({ status: "ok", message: "LIKE aggregator web app is running." });
 }

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Like Widget</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+  }
+  .like-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid #e0e0e0;
+    background: #fafafa;
+    border-radius: 999px;
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    color: #444;
+    transition: background 0.15s ease, transform 0.1s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .like-btn:hover { border-color: #ff6b81; }
+  .like-btn:active { transform: scale(0.94); }
+  .like-btn.liked {
+    background: #ffeef1;
+    border-color: #ff6b81;
+    color: #ff2d55;
+  }
+  .like-icon { font-size: 1rem; }
+  .like-error {
+    font-size: 0.75rem;
+    color: #c0392b;
+    margin-top: 6px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<div>
+  <button class="like-btn" type="button" id="like-btn" aria-label="좋아요">
+    <span class="like-icon">♥</span>
+    <span class="like-count" id="like-count">0</span>
+  </button>
+  <div class="like-error" id="like-error" hidden>postId 파라미터가 필요합니다</div>
+</div>
+
+<script src="config.js"></script>
+<script src="like-widget.js"></script>
+</body>
+</html>
