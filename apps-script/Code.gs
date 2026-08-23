@@ -40,8 +40,19 @@ function jsonOutput_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
+// 시트에 "yyyy-MM-dd" 문자열을 쓰면 Google Sheets가 자동으로 진짜 Date 값으로
+// 바꿔버리는 경우가 있다. 비교할 때는 항상 이 함수로 정규화해서, 셀에 Date가
+// 들어있든 문자열이 들어있든 같은 날짜면 반드시 매칭되게 한다.
+function normalizeDateStr_(value, tz) {
+  if (Object.prototype.toString.call(value) === "[object Date]") {
+    return Utilities.formatDate(value, tz, "yyyy-MM-dd");
+  }
+  return String(value);
+}
+
 // key 컬럼들이 일치하는 행을 찾아 LikeCount에 count를 더하고, 없으면 새 행을 추가한다.
-function upsertSum_(sheet, keyValues, keyColCount, countCol, title, count, now) {
+// 첫 번째 key 컬럼(index 0)은 항상 날짜로 취급해 Date/문자열 혼용 문제를 피한다.
+function upsertSum_(sheet, keyValues, keyColCount, countCol, title, count, now, tz) {
   var lastRow = sheet.getLastRow();
 
   if (lastRow > 1) {
@@ -49,7 +60,9 @@ function upsertSum_(sheet, keyValues, keyColCount, countCol, title, count, now) 
     for (var i = 0; i < keys.length; i++) {
       var match = true;
       for (var c = 0; c < keyColCount; c++) {
-        if (String(keys[i][c]) !== String(keyValues[c])) {
+        var cellStr = c === 0 ? normalizeDateStr_(keys[i][c], tz) : String(keys[i][c]);
+        var targetStr = c === 0 ? normalizeDateStr_(keyValues[c], tz) : String(keyValues[c]);
+        if (cellStr !== targetStr) {
           match = false;
           break;
         }
@@ -71,12 +84,14 @@ function upsertSum_(sheet, keyValues, keyColCount, countCol, title, count, now) 
 }
 
 // keyCol 값이 일치하는 행을 찾아 통째로 덮어쓰고, 없으면 새 행을 추가한다. (합산이 아니라 재계산 결과로 교체)
-function upsertOverwriteRow_(sheet, keyValue, keyCol, rowValues) {
+// keyCol은 항상 날짜 컬럼이라고 가정한다.
+function upsertOverwriteRow_(sheet, keyValue, keyCol, rowValues, tz) {
   var lastRow = sheet.getLastRow();
   if (lastRow > 1) {
     var keys = sheet.getRange(2, keyCol, lastRow - 1, 1).getValues();
+    var targetStr = normalizeDateStr_(keyValue, tz);
     for (var i = 0; i < keys.length; i++) {
-      if (String(keys[i][0]) === String(keyValue)) {
+      if (normalizeDateStr_(keys[i][0], tz) === targetStr) {
         sheet.getRange(i + 2, 1, 1, rowValues.length).setValues([rowValues]);
         return;
       }
@@ -86,7 +101,7 @@ function upsertOverwriteRow_(sheet, keyValue, keyCol, rowValues) {
 }
 
 // LIKE 테이블에서 특정 날짜의 데이터를 다시 훑어 "일별 좋아요 집계" 한 행을 갱신한다.
-function recomputeDailySummary_(likeSheet, dailySheet, date) {
+function recomputeDailySummary_(likeSheet, dailySheet, date, tz) {
   var lastRow = likeSheet.getLastRow();
   var totalCount = 0;
   var postCounts = {}; // postId -> {title, count}
@@ -94,7 +109,7 @@ function recomputeDailySummary_(likeSheet, dailySheet, date) {
   if (lastRow > 1) {
     var values = likeSheet.getRange(2, 1, lastRow - 1, 5).getValues(); // Date,Hour,PostID,PostTitle,LikeCount
     values.forEach(function (row) {
-      if (String(row[0]) !== String(date)) return;
+      if (normalizeDateStr_(row[0], tz) !== date) return;
       var postId = row[2];
       var title = row[3];
       var count = Number(row[4]) || 0;
@@ -114,7 +129,7 @@ function recomputeDailySummary_(likeSheet, dailySheet, date) {
     }
   });
 
-  upsertOverwriteRow_(dailySheet, date, 1, [date, totalCount, topTitle]);
+  upsertOverwriteRow_(dailySheet, date, 1, [date, totalCount, topTitle], tz);
 
   var dailyLastRow = dailySheet.getLastRow();
   if (dailyLastRow > 2) {
@@ -181,19 +196,21 @@ function aggregateAndClearPending() {
     });
 
     var likeSheet = getOrCreateSheet_(ss, LIKE_SHEET_NAME, LIKE_HEADER);
+    likeSheet.getRange("A:A").setNumberFormat("@"); // Date 컬럼을 텍스트로 고정해 자동 변환 방지
     var now = new Date();
 
     Object.keys(hourlySums).forEach(function (k) {
       var s = hourlySums[k];
-      upsertSum_(likeSheet, [s.date, s.hour, s.postId], 3, 5, s.title, s.count, now);
+      upsertSum_(likeSheet, [s.date, s.hour, s.postId], 3, 5, s.title, s.count, now, tz);
     });
 
     // 합산이 끝난 원시 로그는 삭제해 Pending 시트 크기를 작게 유지한다.
     pendingSheet.deleteRows(2, lastRow - 1);
 
     var dailySheet = getOrCreateSheet_(ss, DAILY_SUMMARY_SHEET_NAME, DAILY_SUMMARY_HEADER);
+    dailySheet.getRange("A:A").setNumberFormat("@"); // 날짜 컬럼을 텍스트로 고정해 자동 변환 방지
     Object.keys(touchedDates).forEach(function (date) {
-      recomputeDailySummary_(likeSheet, dailySheet, date);
+      recomputeDailySummary_(likeSheet, dailySheet, date, tz);
     });
   } finally {
     lock.releaseLock();
@@ -234,16 +251,85 @@ function migrateToNormalizedSheets() {
 
   getOrCreateSheet_(ss, PENDING_SHEET_NAME, PENDING_HEADER);
   var dailySheet = getOrCreateSheet_(ss, DAILY_SUMMARY_SHEET_NAME, DAILY_SUMMARY_HEADER);
+  dailySheet.getRange("A:A").setNumberFormat("@");
 
+  var tz = Session.getScriptTimeZone();
   var dates = {};
   extracted.forEach(function (row) {
-    dates[row[0]] = true;
+    dates[normalizeDateStr_(row[0], tz)] = true;
   });
   Object.keys(dates).forEach(function (date) {
-    recomputeDailySummary_(likeSheet, dailySheet, date);
+    recomputeDailySummary_(likeSheet, dailySheet, date, tz);
   });
 
   Logger.log("마이그레이션 완료: LIKE " + extracted.length + "행 이전, 일별 집계 " + Object.keys(dates).length + "일 계산됨.");
+}
+
+// LIKE 시트의 Date 컬럼이 문자열/Date 타입으로 뒤섞여서 (날짜,시간,포스트) 합산이
+// 제대로 안 되고 중복 행이 쌓인 경우를 고치는 1회성 복구 함수. 모든 행을 다시 훑어
+// 같은 (날짜,시간,포스트)를 하나로 합치고, 날짜를 텍스트로 통일해서 다시 쓴 뒤
+// 일별 좋아요 집계도 전부 재계산한다. Apps Script 편집기에서 딱 한 번만 실행할 것.
+function repairDuplicateLikeRows() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var likeSheet = getOrCreateSheet_(ss, LIKE_SHEET_NAME, LIKE_HEADER);
+  var tz = Session.getScriptTimeZone();
+
+  var lastRow = likeSheet.getLastRow();
+  var merged = {}; // key: date|hour|postId -> {date,hour,postId,title,count,lastUpdated}
+
+  if (lastRow > 1) {
+    var values = likeSheet.getRange(2, 1, lastRow - 1, 6).getValues();
+    values.forEach(function (row) {
+      var date = normalizeDateStr_(row[0], tz);
+      var hour = row[1];
+      var postId = row[2];
+      var title = row[3];
+      var count = Number(row[4]) || 0;
+      var lastUpdated = row[5];
+      if (!postId) return;
+
+      var key = date + "|" + hour + "|" + postId;
+      if (!merged[key]) {
+        merged[key] = { date: date, hour: hour, postId: postId, title: title, count: 0, lastUpdated: lastUpdated };
+      }
+      merged[key].count += count;
+      if (lastUpdated instanceof Date && (!(merged[key].lastUpdated instanceof Date) || lastUpdated > merged[key].lastUpdated)) {
+        merged[key].lastUpdated = lastUpdated;
+        merged[key].title = title;
+      }
+    });
+  }
+
+  var rows = Object.keys(merged).map(function (k) {
+    var m = merged[k];
+    return [m.date, m.hour, m.postId, m.title, m.count, m.lastUpdated];
+  });
+
+  likeSheet.getRange(2, 1, Math.max(likeSheet.getMaxRows() - 1, rows.length), 6).clearContent();
+  likeSheet.getRange("A:A").setNumberFormat("@");
+  likeSheet.getRange(1, 1, 1, LIKE_HEADER.length).setValues([LIKE_HEADER]);
+  if (rows.length) {
+    likeSheet.getRange(2, 1, rows.length, 6).setValues(rows);
+  }
+
+  var dailySheet = getOrCreateSheet_(ss, DAILY_SUMMARY_SHEET_NAME, DAILY_SUMMARY_HEADER);
+  dailySheet.getRange("A:A").setNumberFormat("@");
+  var dailyLastRow = dailySheet.getLastRow();
+  if (dailyLastRow > 1) {
+    dailySheet.getRange(2, 1, dailyLastRow - 1, DAILY_SUMMARY_HEADER.length).clearContent();
+  }
+
+  var dates = {};
+  rows.forEach(function (row) {
+    dates[row[0]] = true;
+  });
+  Object.keys(dates).forEach(function (date) {
+    recomputeDailySummary_(likeSheet, dailySheet, date, tz);
+  });
+
+  Logger.log(
+    "복구 완료: LIKE " + rows.length + "행으로 정리(합산), 일별 집계 " + Object.keys(dates).length + "일 재계산됨."
+  );
 }
 
 // Apps Script 편집기에서 이 함수를 한 번만 수동 실행하면 1분 주기 트리거가 등록된다.
