@@ -1,78 +1,51 @@
 // 대상 스프레드시트: https://docs.google.com/spreadsheets/d/1MOCGapRs-sc1civpI3wwV0BsYm85gMSTKsHoZOVmHJA
 //
-// 시트 1개("LIKE") 안에 열 블록으로 구분된 표 4개를 둔다. (여러 시트 탭으로 나누지 않음)
-//   [A:D]  Post   - 포스트별 전체 누적 합계
-//   [F:K]  Hourly - 날짜+시간별 합계 ("시각별")
-//   [M:Q]  Daily  - 날짜별 합계
-//   [S:U]  Pending- 클릭 원시 로그 (내부 처리용, 매 트리거 실행 후 비워짐)
-// 표 사이에는 구분을 위한 빈 열을 하나씩 둔다.
+// 시트 구성 (탭 3개, 각 탭은 속성 중복 없는 단일 테이블):
+//   LIKE                 - 정규화된 원본 데이터: Date, Hour, PostID, PostTitle, LikeCount, LastUpdated
+//                          (날짜+시간+포스트 단위 사실 테이블. "모든 데이터"의 단일 출처)
+//   Pending              - 클릭 원시 로그 (내부 처리용, 트리거 실행 후 비워짐)
+//   일별 좋아요 집계      - 대시보드용 요약: 날짜, 오늘의 총 좋아요 수, 최다 좋아요 포스트
+//                          (매번 LIKE 테이블에서 다시 계산해서 덮어씀 — 별도로 값을 누적하지 않음)
 //
 // 흐름:
-//   1) doPost: 클릭 1건마다 즉시 Pending 블록에 원시 로그로 적재 (빠른 응답)
+//   1) doPost: 클릭 1건마다 즉시 Pending에 원시 로그로 적재 (빠른 응답)
 //   2) aggregateAndClearPending: 시간 기반 트리거(1분마다, 브라우저와 무관)로
-//      Pending을 읽어 Post/Hourly/Daily 블록에 합산하고 Pending 블록만 비움.
+//      Pending을 읽어 LIKE에 합산하고, 영향받은 날짜의 "일별 좋아요 집계"를 재계산한 뒤
+//      Pending을 비움.
 //
 // 배포/트리거 설정 방법은 apps-script/README.md 참고.
 
 var SPREADSHEET_ID = "1MOCGapRs-sc1civpI3wwV0BsYm85gMSTKsHoZOVmHJA";
-var SHEET_NAME = "LIKE";
 
-var BLOCKS = {
-  post: { startCol: 1, header: ["PostID", "PostTitle", "LikeCount", "LastUpdated"] }, // A:D
-  hourly: { startCol: 6, header: ["Date", "Hour", "PostID", "PostTitle", "LikeCount", "LastUpdated"] }, // F:K
-  daily: { startCol: 13, header: ["Date", "PostID", "PostTitle", "LikeCount", "LastUpdated"] }, // M:Q
-  pending: { startCol: 19, header: ["ServerTimestamp", "PostID", "PostTitle"] } // S:U
-};
+var LIKE_SHEET_NAME = "LIKE";
+var PENDING_SHEET_NAME = "Pending";
+var DAILY_SUMMARY_SHEET_NAME = "일별 좋아요 집계";
 
-function getSheet_() {
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var sheet = ss.getSheetByName(SHEET_NAME);
+var LIKE_HEADER = ["Date", "Hour", "PostID", "PostTitle", "LikeCount", "LastUpdated"];
+var PENDING_HEADER = ["ServerTimestamp", "PostID", "PostTitle"];
+var DAILY_SUMMARY_HEADER = ["날짜", "오늘의 총 좋아요 수", "최다 좋아요 포스트"];
+
+function getOrCreateSheet_(ss, name, header) {
+  var sheet = ss.getSheetByName(name);
   if (!sheet) {
-    sheet = ss.insertSheet(SHEET_NAME);
+    sheet = ss.insertSheet(name);
   }
-  Object.keys(BLOCKS).forEach(function (key) {
-    ensureHeader_(sheet, BLOCKS[key]);
-  });
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(header);
+  }
   return sheet;
 }
 
-function ensureHeader_(sheet, block) {
-  var range = sheet.getRange(1, block.startCol, 1, block.header.length);
-  var existing = range.getValues()[0];
-  var isEmpty = existing.every(function (v) {
-    return v === "" || v === null;
-  });
-  if (isEmpty) {
-    range.setValues([block.header]);
-  }
-}
-
-// 해당 블록(열 범위) 안에서만 마지막으로 데이터가 있는 행 번호를 찾는다.
-// (다른 블록의 행 길이와 독립적으로 관리하기 위함)
-function getBlockLastRow_(sheet, block) {
-  var maxRows = sheet.getMaxRows();
-  var values = sheet.getRange(1, block.startCol, maxRows, 1).getValues();
-  var lastRow = 1; // 헤더 행
-  for (var i = 1; i < values.length; i++) {
-    if (values[i][0] !== "" && values[i][0] !== null && values[i][0] !== undefined) {
-      lastRow = i + 1;
-    }
-  }
-  return lastRow;
-}
-
-function appendBlockRow_(sheet, block, rowValues) {
-  var lastRow = getBlockLastRow_(sheet, block);
-  sheet.getRange(lastRow + 1, block.startCol, 1, rowValues.length).setValues([rowValues]);
+function jsonOutput_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
 // key 컬럼들이 일치하는 행을 찾아 LikeCount에 count를 더하고, 없으면 새 행을 추가한다.
-// countColOffset: 블록 내에서 LikeCount 컬럼의 0-based 오프셋 (바로 다음 컬럼이 LastUpdated)
-function upsertSumBlock_(sheet, block, keyValues, keyColCount, countColOffset, title, count, now) {
-  var lastRow = getBlockLastRow_(sheet, block);
+function upsertSum_(sheet, keyValues, keyColCount, countCol, title, count, now) {
+  var lastRow = sheet.getLastRow();
 
   if (lastRow > 1) {
-    var keys = sheet.getRange(2, block.startCol, lastRow - 1, keyColCount).getValues();
+    var keys = sheet.getRange(2, 1, lastRow - 1, keyColCount).getValues();
     for (var i = 0; i < keys.length; i++) {
       var match = true;
       for (var c = 0; c < keyColCount; c++) {
@@ -83,7 +56,6 @@ function upsertSumBlock_(sheet, block, keyValues, keyColCount, countColOffset, t
       }
       if (match) {
         var rowIndex = i + 2;
-        var countCol = block.startCol + countColOffset;
         var countCell = sheet.getRange(rowIndex, countCol);
         countCell.setValue(countCell.getValue() + count);
         sheet.getRange(rowIndex, countCol + 1).setValue(now); // LastUpdated
@@ -95,14 +67,62 @@ function upsertSumBlock_(sheet, block, keyValues, keyColCount, countColOffset, t
   var row = keyValues.slice();
   row.splice(keyColCount, 0, title || "");
   row.push(count, now);
-  appendBlockRow_(sheet, block, row);
+  sheet.appendRow(row);
 }
 
-function jsonOutput_(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+// keyCol 값이 일치하는 행을 찾아 통째로 덮어쓰고, 없으면 새 행을 추가한다. (합산이 아니라 재계산 결과로 교체)
+function upsertOverwriteRow_(sheet, keyValue, keyCol, rowValues) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    var keys = sheet.getRange(2, keyCol, lastRow - 1, 1).getValues();
+    for (var i = 0; i < keys.length; i++) {
+      if (String(keys[i][0]) === String(keyValue)) {
+        sheet.getRange(i + 2, 1, 1, rowValues.length).setValues([rowValues]);
+        return;
+      }
+    }
+  }
+  sheet.appendRow(rowValues);
 }
 
-// 클릭 즉시 호출됨. 무거운 집계 연산 없이 Pending 블록에만 빠르게 적재한다.
+// LIKE 테이블에서 특정 날짜의 데이터를 다시 훑어 "일별 좋아요 집계" 한 행을 갱신한다.
+function recomputeDailySummary_(likeSheet, dailySheet, date) {
+  var lastRow = likeSheet.getLastRow();
+  var totalCount = 0;
+  var postCounts = {}; // postId -> {title, count}
+
+  if (lastRow > 1) {
+    var values = likeSheet.getRange(2, 1, lastRow - 1, 5).getValues(); // Date,Hour,PostID,PostTitle,LikeCount
+    values.forEach(function (row) {
+      if (String(row[0]) !== String(date)) return;
+      var postId = row[2];
+      var title = row[3];
+      var count = Number(row[4]) || 0;
+
+      totalCount += count;
+      if (!postCounts[postId]) postCounts[postId] = { title: title, count: 0 };
+      postCounts[postId].count += count;
+    });
+  }
+
+  var topTitle = "";
+  var topCount = -1;
+  Object.keys(postCounts).forEach(function (postId) {
+    if (postCounts[postId].count > topCount) {
+      topCount = postCounts[postId].count;
+      topTitle = postCounts[postId].title;
+    }
+  });
+
+  upsertOverwriteRow_(dailySheet, date, 1, [date, totalCount, topTitle]);
+
+  var dailyLastRow = dailySheet.getLastRow();
+  if (dailyLastRow > 2) {
+    dailySheet.getRange(2, 1, dailyLastRow - 1, 3).sort(1);
+  }
+}
+
+// 클릭 즉시 호출됨. 무거운 집계 연산 없이 Pending에만 빠르게 적재한다.
 function doPost(e) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -114,8 +134,9 @@ function doPost(e) {
       return jsonOutput_({ status: "error", message: "postId is required" });
     }
 
-    var sheet = getSheet_();
-    appendBlockRow_(sheet, BLOCKS.pending, [new Date(), postId, title]);
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var pendingSheet = getOrCreateSheet_(ss, PENDING_SHEET_NAME, PENDING_HEADER);
+    pendingSheet.appendRow([new Date(), postId, title]);
 
     return jsonOutput_({ status: "ok" });
   } catch (err) {
@@ -130,16 +151,17 @@ function aggregateAndClearPending() {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    var sheet = getSheet_();
-    var pendingLastRow = getBlockLastRow_(sheet, BLOCKS.pending);
-    if (pendingLastRow <= 1) return; // 처리할 데이터 없음
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var pendingSheet = getOrCreateSheet_(ss, PENDING_SHEET_NAME, PENDING_HEADER);
 
-    var rows = sheet.getRange(2, BLOCKS.pending.startCol, pendingLastRow - 1, 3).getValues();
+    var lastRow = pendingSheet.getLastRow();
+    if (lastRow <= 1) return; // 처리할 데이터 없음
+
+    var rows = pendingSheet.getRange(2, 1, lastRow - 1, 3).getValues();
     var tz = Session.getScriptTimeZone();
 
-    var postSums = {}; // key: postId
     var hourlySums = {}; // key: date|hour|postId
-    var dailySums = {}; // key: date|postId
+    var touchedDates = {};
 
     rows.forEach(function (row) {
       var ts = row[0];
@@ -150,45 +172,82 @@ function aggregateAndClearPending() {
       var date = Utilities.formatDate(ts, tz, "yyyy-MM-dd");
       var hour = Number(Utilities.formatDate(ts, tz, "H"));
 
-      if (!postSums[postId]) postSums[postId] = { postId: postId, title: title, count: 0 };
-      postSums[postId].count++;
-
       var hKey = date + "|" + hour + "|" + postId;
       if (!hourlySums[hKey]) {
         hourlySums[hKey] = { date: date, hour: hour, postId: postId, title: title, count: 0 };
       }
       hourlySums[hKey].count++;
-
-      var dKey = date + "|" + postId;
-      if (!dailySums[dKey]) {
-        dailySums[dKey] = { date: date, postId: postId, title: title, count: 0 };
-      }
-      dailySums[dKey].count++;
+      touchedDates[date] = true;
     });
 
+    var likeSheet = getOrCreateSheet_(ss, LIKE_SHEET_NAME, LIKE_HEADER);
     var now = new Date();
 
-    Object.keys(postSums).forEach(function (k) {
-      var s = postSums[k];
-      upsertSumBlock_(sheet, BLOCKS.post, [s.postId], 1, 2, s.title, s.count, now);
-    });
     Object.keys(hourlySums).forEach(function (k) {
       var s = hourlySums[k];
-      upsertSumBlock_(sheet, BLOCKS.hourly, [s.date, s.hour, s.postId], 3, 4, s.title, s.count, now);
-    });
-    Object.keys(dailySums).forEach(function (k) {
-      var s = dailySums[k];
-      upsertSumBlock_(sheet, BLOCKS.daily, [s.date, s.postId], 2, 3, s.title, s.count, now);
+      upsertSum_(likeSheet, [s.date, s.hour, s.postId], 3, 5, s.title, s.count, now);
     });
 
-    // 합산이 끝난 원시 로그(Pending 블록)만 비운다. 다른 블록의 행에는 영향 없음.
-    sheet.getRange(2, BLOCKS.pending.startCol, pendingLastRow - 1, 3).clearContent();
+    // 합산이 끝난 원시 로그는 삭제해 Pending 시트 크기를 작게 유지한다.
+    pendingSheet.deleteRows(2, lastRow - 1);
+
+    var dailySheet = getOrCreateSheet_(ss, DAILY_SUMMARY_SHEET_NAME, DAILY_SUMMARY_HEADER);
+    Object.keys(touchedDates).forEach(function (date) {
+      recomputeDailySummary_(likeSheet, dailySheet, date);
+    });
   } finally {
     lock.releaseLock();
   }
 }
 
+// 기존에 LIKE 시트가 Post/Hourly/Daily/Pending 열 블록으로 되어 있던 이전 버전 데이터를
+// 새 정규화 구조로 옮기는 1회성 함수. Apps Script 편집기에서 딱 한 번만 수동 실행할 것.
+function migrateToNormalizedSheets() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var likeSheet = ss.getSheetByName(LIKE_SHEET_NAME);
+  if (!likeSheet) {
+    Logger.log("LIKE 시트가 없어 마이그레이션할 데이터가 없습니다.");
+    return;
+  }
+
+  var OLD_HOURLY_START_COL = 6; // 이전 버전의 Hourly 블록(F열) 위치
+  var lastRow = likeSheet.getLastRow();
+  var extracted = [];
+
+  if (lastRow > 1) {
+    var maxScanRows = likeSheet.getMaxRows() - 1;
+    var values = likeSheet.getRange(2, OLD_HOURLY_START_COL, maxScanRows, 6).getValues();
+    values.forEach(function (row) {
+      if (row[0] !== "" && row[0] !== null && row[0] !== undefined) {
+        extracted.push(row); // Date, Hour, PostID, PostTitle, LikeCount, LastUpdated
+      }
+    });
+  }
+
+  // 이전 블록 레이아웃 전체 삭제 (A:U 범위 정도면 충분히 덮음)
+  likeSheet.getRange(1, 1, likeSheet.getMaxRows(), 21).clearContent();
+
+  likeSheet.getRange(1, 1, 1, LIKE_HEADER.length).setValues([LIKE_HEADER]);
+  if (extracted.length) {
+    likeSheet.getRange(2, 1, extracted.length, 6).setValues(extracted);
+  }
+
+  getOrCreateSheet_(ss, PENDING_SHEET_NAME, PENDING_HEADER);
+  var dailySheet = getOrCreateSheet_(ss, DAILY_SUMMARY_SHEET_NAME, DAILY_SUMMARY_HEADER);
+
+  var dates = {};
+  extracted.forEach(function (row) {
+    dates[row[0]] = true;
+  });
+  Object.keys(dates).forEach(function (date) {
+    recomputeDailySummary_(likeSheet, dailySheet, date);
+  });
+
+  Logger.log("마이그레이션 완료: LIKE " + extracted.length + "행 이전, 일별 집계 " + Object.keys(dates).length + "일 계산됨.");
+}
+
 // Apps Script 편집기에서 이 함수를 한 번만 수동 실행하면 1분 주기 트리거가 등록된다.
+// 이미 등록되어 있다면 다시 실행해도 중복 없이 안전하다 (기존 트리거를 지우고 새로 만듦).
 function createTrigger() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === "aggregateAndClearPending") {
