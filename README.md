@@ -28,6 +28,19 @@ GitHub Pages는 정적 파일만 서빙 가능해 Django+PostgreSQL을 올릴 �
   React 프로젝트 배포에 더 편한 Vercel로 이전 고려
 - CORS: Django 쪽에서 프론트 도메인만 허용하도록 `django-cors-headers` 설정
 
+#### 배포 준비 완료 항목 (backend)
+
+- `gunicorn`(WSGI 서버), `whitenoise`(정적 파일 서빙), `dj-database-url`
+  추가 (`requirements.txt`)
+- `settings.py`: `DATABASE_URL` 환경변수가 있으면 그걸 파싱해서 DB 연결
+  (없으면 기존 `POSTGRES_*` 변수로 로컬 개발 그대로 동작), whitenoise
+  미들웨어/정적파일 스토리지 설정
+- `backend/Procfile`: `release: python manage.py migrate` /
+  `web: gunicorn config.wsgi`
+- 대시보드에서 채워야 하는 환경변수: `DJANGO_SECRET_KEY`(새로 발급),
+  `DJANGO_DEBUG=False`, `DJANGO_ALLOWED_HOSTS=<배포 도메인>`,
+  `DATABASE_URL`(관리형 Postgres가 자동 제공), `CORS_ALLOWED_ORIGINS=<프론트 도메인>`
+
 ### 마이그레이션 메모
 
 - 기존 `index.html` / `script.js` / `like-widget.*` / Apps Script 백엔드는
