@@ -1,0 +1,70 @@
+{
+  "info": {
+    "name": "WEB_CLAUDE_T API",
+    "description": "Django REST Framework API for the posts/likes backend.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://127.0.0.1:8000/api" },
+    { "key": "slug", "value": "post-1" }
+  ],
+  "item": [
+    {
+      "name": "Posts",
+      "item": [
+        {
+          "name": "List posts",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/posts/"
+          }
+        },
+        {
+          "name": "Retrieve post",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/posts/{{slug}}/"
+          }
+        },
+        {
+          "name": "Create post",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/posts/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"slug\": \"new-post\",\n  \"title\": \"새 포스트\",\n  \"category\": \"공지\",\n  \"body\": \"내용을 입력하세요\",\n  \"published_at\": \"2026-08-31\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Update post (PATCH)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/posts/{{slug}}/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"수정된 제목\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete post",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/posts/{{slug}}/"
+          }
+        },
+        {
+          "name": "Like post",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/posts/{{slug}}/like/"
+          }
+        }
+      ]
+    }
+  ]
+}
