@@ -1,5 +1,4 @@
 # WEB_CLAUDE_T
-CANVA_INTEGRATION.md 를 참고하세요.
 
 https://gustjr3332.github.io/WEB_CLAUDE_T/
 
@@ -46,4 +45,3 @@ GitHub Pages는 정적 파일만 서빙 가능해 Django+PostgreSQL을 올릴 �
 4. Postman 컬렉션 작성 및 엔드포인트 검증
 5. Render/Railway에 백엔드+DB 배포, 프론트 배포처 확정
 6. 기존 정적 사이트와 기능 패리티 확인 후 전환
->>>>>>> Stashed changes

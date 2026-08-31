@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-webclaude}
+      POSTGRES_USER: ${POSTGRES_USER:-webclaude}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-webclaude}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
