@@ -1,15 +1,97 @@
-import type { Post } from './types';
+import type { AuthTokens, Contest, ScoreboardEntry, Submission, Team } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
 
-export async function fetchPosts(): Promise<Post[]> {
-  const res = await fetch(`${API_BASE_URL}/posts/`);
-  if (!res.ok) throw new Error(`게시글을 불러오지 못했습니다 (${res.status})`);
+const ACCESS_TOKEN_KEY = 'webclaude_access_token';
+const USERNAME_KEY = 'webclaude_username';
+
+export function getAccessToken(): string | null {
+  return localStorage.getItem(ACCESS_TOKEN_KEY);
+}
+
+export function getStoredUsername(): string | null {
+  return localStorage.getItem(USERNAME_KEY);
+}
+
+export function clearAuth() {
+  localStorage.removeItem(ACCESS_TOKEN_KEY);
+  localStorage.removeItem(USERNAME_KEY);
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = getAccessToken();
+  const headers = new Headers(options.headers);
+  headers.set('Content-Type', 'application/json');
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+
+  const res = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    const message =
+      (detail && (detail.detail || Object.values(detail)[0])) || `요청에 실패했습니다 (${res.status})`;
+    throw new Error(Array.isArray(message) ? message[0] : String(message));
+  }
+  if (res.status === 204) return undefined as T;
   return res.json();
 }
 
-export async function likePost(slug: string): Promise<{ slug: string; like_count: number }> {
-  const res = await fetch(`${API_BASE_URL}/posts/${slug}/like/`, { method: 'POST' });
-  if (!res.ok) throw new Error(`좋아요 전송에 실패했습니다 (${res.status})`);
-  return res.json();
+export async function register(username: string, email: string, password: string): Promise<void> {
+  await request('/auth/register/', {
+    method: 'POST',
+    body: JSON.stringify({ username, email, password }),
+  });
+}
+
+export async function login(username: string, password: string): Promise<AuthTokens> {
+  const tokens = await request<AuthTokens>('/auth/token/', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  });
+  localStorage.setItem(ACCESS_TOKEN_KEY, tokens.access);
+  localStorage.setItem(USERNAME_KEY, username);
+  return tokens;
+}
+
+export function logout() {
+  clearAuth();
+}
+
+export function fetchContests(): Promise<Contest[]> {
+  return request('/contests/');
+}
+
+export function fetchScoreboard(slug: string): Promise<ScoreboardEntry[]> {
+  return request(`/contests/${slug}/scoreboard/`);
+}
+
+export function fetchTeams(contestSlug: string): Promise<Team[]> {
+  return request(`/teams/?contest=${contestSlug}`);
+}
+
+export function createTeam(contestSlug: string, name: string): Promise<Team> {
+  return request('/teams/', {
+    method: 'POST',
+    body: JSON.stringify({ contest: contestSlug, name }),
+  });
+}
+
+export function joinTeam(teamId: number): Promise<void> {
+  return request(`/teams/${teamId}/join/`, { method: 'POST' });
+}
+
+export function upsertSubmission(
+  teamId: number,
+  existingId: number | undefined,
+  data: { title: string; description: string; link_url: string }
+): Promise<Submission> {
+  if (existingId) {
+    return request(`/submissions/${existingId}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+  return request('/submissions/', {
+    method: 'POST',
+    body: JSON.stringify({ team: teamId, ...data }),
+  });
 }
