@@ -1,7 +1,8 @@
 # WEB_CLAUDE_T
 
 - 기존 정적 사이트(운영 중): https://gustjr3332.github.io/WEB_CLAUDE_T/
-- 신규 백엔드(배포 완료): https://web-claude-t.onrender.com/api/posts/
+- 신규 백엔드(배포 완료, 도메인 전환 반영 전): https://web-claude-t.onrender.com/api/contests/
+  (Render 배포본은 아직 이전 `posts` 스캐폴딩 기준이라 재배포 필요 — [남은 배포 작업](#남은-배포-작업) 참고)
 
 ## 개요
 
@@ -45,13 +46,14 @@ Django/React 전환은 완료됐지만, 이 저장소의 최종 목적지는 블
 ├── apps-script/            # 레거시 백엔드: Google Apps Script + Sheets (Code.gs, README.md)
 ├── backend/                # 신규 백엔드: Django + DRF + PostgreSQL
 │   ├── config/              # 프로젝트 설정 (settings.py, urls.py, wsgi.py)
-│   ├── posts/                # 게시글/좋아요 앱 (models, serializers, views, migrations)
+│   ├── contests/             # 대회/팀/제출물/심사 도메인 앱 (models, serializers,
+│   │                           permissions, views, migrations) — posts 앱 대체
 │   ├── postman/               # Postman 컬렉션/환경 (엔드포인트 수동 검증용)
 │   ├── docker-compose.yml       # 로컬 PostgreSQL 컨테이너
 │   ├── Procfile                  # 배포 시작 명령 (Render)
 │   └── requirements.txt
 ├── frontend/                # 신규 프론트엔드: React + TypeScript + Vite
-│   └── src/                    # App.tsx, PostCard.tsx, api.ts, types.ts
+│   └── src/                    # App.tsx, AuthPanel.tsx, ContestDetail.tsx, api.ts, types.ts
 └── .devcontainer/            # Python+Node+PostgreSQL 개발 컨테이너 (VS Code Dev Containers)
 ```
 
@@ -97,7 +99,8 @@ npm run dev                   # http://localhost:5173
 ### API 엔드포인트 검증
 
 `backend/postman/WebClaude.postman_collection.json` + `WebClaude.postman_environment.json`을
-Postman에 가져오면 posts 목록/조회/생성/수정/삭제/좋아요 요청을 바로 실행해볼 수 있습니다.
+Postman에 가져오면 회원가입/로그인(JWT), 대회 CRUD, 팀 생성/참가, 제출물 등록/수정,
+심사 점수 입력, 스코어보드 조회 요청을 바로 실행해볼 수 있습니다.
 로컬 대상: `base_url = http://127.0.0.1:8000/api`.
 
 ## 백엔드 배포 (Render)
@@ -133,6 +136,10 @@ Postman에 가져오면 posts 목록/조회/생성/수정/삭제/좋아요 요�
 
 ### 남은 배포 작업
 
+- **Render 재배포 필요**: `posts` 앱을 제거하고 `contests` 도메인으로 교체했지만
+  (2026-09-01), Render에는 아직 재배포하지 않았습니다. 재배포 시 `migrate`가
+  새 `contests` 마이그레이션을 적용하며, 기존 `posts_post` 테이블은 애플리케이션
+  코드에서 더 이상 참조하지 않으니 그대로 두거나 수동으로 정리하면 됩니다.
 - 프론트엔드 배포 도메인이 정해지면 `CORS_ALLOWED_ORIGINS`에 추가
 - 커스텀 도메인 연결 여부 결정 (선택)
 
@@ -190,19 +197,21 @@ Vercel로 옮기는 조합을 권장합니다.
 기존 7번 항목("도메인 모델 설계 및 posts 교체 착수")이 바로 실행하기엔 너무
 뭉뚱그려져 있어, 실행 가능한 단위로 세분화했습니다.
 
-1. **도메인 모델 설계** — Contest / Team / Participant / Submission / Judge /
-   Score 엔터티와 대회 상태 전이(모집중→진행중→심사중→종료) 정의
-2. **`contests` 앱 신설** — 위 모델 + 마이그레이션 작성, 기존 `posts` 앱은 제거
-3. **인증/권한 도입** — 웹+Flutter 공용 전제로 JWT(`simplejwt`) 도입, 역할 기반
-   권한(운영자/참가자/심사위원) 설계
-4. **핵심 API 구현** — 대회 생성, 팀 등록/참가, 제출물 업로드, 심사 점수 입력
-   엔드포인트
-5. **실시간 집계 기능** — 우아한형제들 사례(예선 15분·결선 10분) 참고해 팀별
-   점수 집계 스코어보드 API (1차는 REST 폴링 기반 MVP, WebSocket은 후속 과제)
-6. **프론트엔드 연동** — React에 로그인/대회 목록/팀 관리/제출/스코어보드 UI 구성,
-   Vercel 실배포는 계정 로그인이 필요해 사람이 직접 진행
+1. ~~**도메인 모델 설계** — Contest / Team / Participant / Submission / Judge /
+   Score 엔터티와 대회 상태 전이(모집중→진행중→심사중→종료) 정의~~ 완료
+2. ~~**`contests` 앱 신설** — 위 모델 + 마이그레이션 작성, 기존 `posts` 앱은 제거~~ 완료
+3. ~~**인증/권한 도입** — 웹+Flutter 공용 전제로 JWT(`simplejwt`) 도입, 역할 기반
+   권한(운영자/참가자/심사위원) 설계~~ 완료
+4. ~~**핵심 API 구현** — 대회 생성, 팀 등록/참가, 제출물 업로드, 심사 점수 입력
+   엔드포인트~~ 완료 (테스트 9개로 인증/권한/집계 검증)
+5. ~~**실시간 집계 기능** — 우아한형제들 사례(예선 15분·결선 10분) 참고해 팀별
+   점수 집계 스코어보드 API~~ 완료 (REST 폴링 기반 MVP로 구현, WebSocket은 후속 과제)
+6. ~~**프론트엔드 연동** — React에 로그인/대회 목록/팀 관리/제출/스코어보드 UI 구성~~
+   완료 (회원가입→로그인→팀 생성→제출→스코어보드 흐름을 실제 브라우저로 검증함).
+   심사위원용 채점 화면은 범위 밖이라 아직 없음 (심사는 API/관리자 화면으로만 가능).
+   Vercel 실배포는 계정 로그인이 필요해 사람이 직접 진행해야 함 (미착수)
 7. **학과/동아리 공모전 시범 적용** — 소규모 실사용 파일럿 진행, 피드백 반영해
-   반복 개선
+   반복 개선 (실제 대회 운영이 필요해 이후 별도로 진행)
 
-1~6번은 코드로 진행 가능해 이번 세션에서 바로 착수합니다. 7번은 실제 대회
-운영이 필요해 이후 별도로 진행합니다.
+1~6번 코딩은 2026-09-01 세션에서 완료했습니다. 남은 건 Vercel 프론트 배포 연결
+(사람이 직접) 과 Render 백엔드 재배포, 그리고 7번 실제 파일럿입니다.
