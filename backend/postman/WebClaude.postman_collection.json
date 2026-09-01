@@ -1,67 +1,199 @@
 {
   "info": {
     "name": "WEB_CLAUDE_T API",
-    "description": "Django REST Framework API for the posts/likes backend.",
+    "description": "Django REST Framework API for the hackathon/contest ops platform (contests/teams/submissions/scores).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     { "key": "base_url", "value": "http://127.0.0.1:8000/api" },
-    { "key": "slug", "value": "post-1" }
+    { "key": "contest_slug", "value": "hack-2026" },
+    { "key": "team_id", "value": "1" },
+    { "key": "submission_id", "value": "1" },
+    { "key": "access_token", "value": "" }
   ],
   "item": [
     {
-      "name": "Posts",
+      "name": "Auth",
       "item": [
         {
-          "name": "List posts",
-          "request": {
-            "method": "GET",
-            "url": "{{base_url}}/posts/"
-          }
-        },
-        {
-          "name": "Retrieve post",
-          "request": {
-            "method": "GET",
-            "url": "{{base_url}}/posts/{{slug}}/"
-          }
-        },
-        {
-          "name": "Create post",
+          "name": "Register",
           "request": {
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "url": "{{base_url}}/posts/",
+            "url": "{{base_url}}/auth/register/",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"slug\": \"new-post\",\n  \"title\": \"새 포스트\",\n  \"category\": \"공지\",\n  \"body\": \"내용을 입력하세요\",\n  \"published_at\": \"2026-08-31\"\n}"
+              "raw": "{\n  \"username\": \"alice\",\n  \"email\": \"alice@example.com\",\n  \"password\": \"strongpass123\"\n}"
             }
           }
         },
         {
-          "name": "Update post (PATCH)",
+          "name": "Login (obtain token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.access) { pm.environment.set('access_token', data.access); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/auth/token/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"alice\",\n  \"password\": \"strongpass123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Refresh token",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/auth/token/refresh/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh\": \"{{refresh_token}}\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Contests",
+      "item": [
+        {
+          "name": "List contests",
+          "request": { "method": "GET", "url": "{{base_url}}/contests/" }
+        },
+        {
+          "name": "Retrieve contest",
+          "request": { "method": "GET", "url": "{{base_url}}/contests/{{contest_slug}}/" }
+        },
+        {
+          "name": "Create contest (organizer only)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": "{{base_url}}/contests/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"slug\": \"{{contest_slug}}\",\n  \"name\": \"2026 교내 해커톤\",\n  \"description\": \"\",\n  \"status\": \"recruiting\",\n  \"start_at\": \"2026-09-10T09:00:00Z\",\n  \"end_at\": \"2026-09-10T21:00:00Z\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Update contest status (organizer only)",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "url": "{{base_url}}/posts/{{slug}}/",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": "{{base_url}}/contests/{{contest_slug}}/",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"title\": \"수정된 제목\"\n}"
+              "raw": "{\n  \"status\": \"ongoing\"\n}"
             }
           }
         },
         {
-          "name": "Delete post",
+          "name": "Scoreboard",
+          "request": { "method": "GET", "url": "{{base_url}}/contests/{{contest_slug}}/scoreboard/" }
+        }
+      ]
+    },
+    {
+      "name": "Teams",
+      "item": [
+        {
+          "name": "List teams (by contest)",
+          "request": { "method": "GET", "url": "{{base_url}}/teams/?contest={{contest_slug}}" }
+        },
+        {
+          "name": "Create team (auto-joins creator)",
           "request": {
-            "method": "DELETE",
-            "url": "{{base_url}}/posts/{{slug}}/"
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": "{{base_url}}/teams/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contest\": \"{{contest_slug}}\",\n  \"name\": \"팀 A\"\n}"
+            }
           }
         },
         {
-          "name": "Like post",
+          "name": "Join team",
           "request": {
             "method": "POST",
-            "url": "{{base_url}}/posts/{{slug}}/like/"
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": "{{base_url}}/teams/{{team_id}}/join/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Submissions",
+      "item": [
+        {
+          "name": "Create submission (team members only)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": "{{base_url}}/submissions/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"team\": {{team_id}},\n  \"title\": \"제출물 제목\",\n  \"description\": \"\",\n  \"link_url\": \"https://example.com\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Update submission (team members only)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": "{{base_url}}/submissions/{{submission_id}}/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"수정된 설명\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Scores",
+      "item": [
+        {
+          "name": "Submit score (assigned judge only)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": "{{base_url}}/scores/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"submission\": {{submission_id}},\n  \"round\": \"preliminary\",\n  \"value\": \"9.5\",\n  \"comment\": \"\"\n}"
+            }
           }
         }
       ]
