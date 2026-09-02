@@ -235,6 +235,63 @@ body {
   font-size: 0.9rem;
 }
 
+.judge-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.judge-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.judge-card h4 {
+  margin: 0 0 4px;
+}
+
+.score-rounds {
+  display: flex;
+  gap: 16px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.score-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 200px;
+}
+
+.score-round-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #555;
+}
+
+.score-form input,
+.score-form textarea {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+}
+
+.score-form button {
+  background: #1c1c1e;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
 .scoreboard-table {
   width: 100%;
   border-collapse: collapse;

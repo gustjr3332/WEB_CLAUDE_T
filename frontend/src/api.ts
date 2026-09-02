@@ -1,4 +1,4 @@
-import type { AuthTokens, Contest, ScoreboardEntry, Submission, Team } from './types';
+import type { AuthTokens, Contest, Judge, Score, ScoreboardEntry, ScoreRound, Submission, Team } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
 
@@ -77,6 +77,32 @@ export function createTeam(contestSlug: string, name: string): Promise<Team> {
 
 export function joinTeam(teamId: number): Promise<void> {
   return request(`/teams/${teamId}/join/`, { method: 'POST' });
+}
+
+export function fetchJudges(contestSlug: string): Promise<Judge[]> {
+  return request(`/judges/?contest=${contestSlug}`);
+}
+
+export function fetchMyScores(): Promise<Score[]> {
+  return request('/scores/');
+}
+
+export function upsertScore(
+  submissionId: number,
+  round: ScoreRound,
+  existingId: number | undefined,
+  data: { value: string; comment: string }
+): Promise<Score> {
+  if (existingId) {
+    return request(`/scores/${existingId}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+  return request('/scores/', {
+    method: 'POST',
+    body: JSON.stringify({ submission: submissionId, round, ...data }),
+  });
 }
 
 export function upsertSubmission(

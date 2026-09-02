@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
-import { createTeam, fetchScoreboard, fetchTeams, joinTeam, upsertSubmission } from './api';
-import type { Contest, ScoreboardEntry, Team } from './types';
+import {
+  createTeam,
+  fetchJudges,
+  fetchMyScores,
+  fetchScoreboard,
+  fetchTeams,
+  joinTeam,
+  upsertScore,
+  upsertSubmission,
+} from './api';
+import type { Contest, Score, ScoreboardEntry, ScoreRound, Team } from './types';
 
 const STATUS_LABEL: Record<Contest['status'], string> = {
   recruiting: '모집중',
@@ -9,7 +18,8 @@ const STATUS_LABEL: Record<Contest['status'], string> = {
   closed: '종료',
 };
 
-const ROUND_LABEL = { preliminary: '예선', final: '결선' } as const;
+const ROUND_LABEL: Record<ScoreRound, string> = { preliminary: '예선', final: '결선' };
+const ROUNDS: ScoreRound[] = ['preliminary', 'final'];
 
 interface ContestDetailProps {
   contest: Contest;
@@ -22,11 +32,21 @@ export function ContestDetail({ contest, username, onBack }: ContestDetailProps)
   const [scoreboard, setScoreboard] = useState<ScoreboardEntry[]>([]);
   const [newTeamName, setNewTeamName] = useState('');
   const [status, setStatus] = useState('');
+  const [isJudge, setIsJudge] = useState(false);
+  const [myScores, setMyScores] = useState<Score[]>([]);
 
   const load = useCallback(() => {
     fetchTeams(contest.slug).then(setTeams).catch((err: Error) => setStatus(err.message));
     fetchScoreboard(contest.slug).then(setScoreboard).catch(() => undefined);
-  }, [contest.slug]);
+    if (username) {
+      fetchJudges(contest.slug)
+        .then((judges) => setIsJudge(judges.some((j) => j.username === username)))
+        .catch(() => setIsJudge(false));
+      fetchMyScores().then(setMyScores).catch(() => undefined);
+    } else {
+      setIsJudge(false);
+    }
+  }, [contest.slug, username]);
 
   useEffect(() => {
     load();
@@ -92,9 +112,105 @@ export function ContestDetail({ contest, username, onBack }: ContestDetailProps)
         {teams.length === 0 && <p className="empty-hint">아직 등록된 팀이 없습니다.</p>}
       </div>
 
+      {isJudge && (
+        <>
+          <h3>심사하기</h3>
+          <JudgePanel teams={teams} myScores={myScores} onScored={load} />
+        </>
+      )}
+
       <h3>스코어보드</h3>
       <ScoreboardTable entries={scoreboard} />
     </section>
+  );
+}
+
+interface JudgePanelProps {
+  teams: Team[];
+  myScores: Score[];
+  onScored: () => void;
+}
+
+function JudgePanel({ teams, myScores, onScored }: JudgePanelProps) {
+  const judgeable = teams.filter((team) => team.submission);
+  if (judgeable.length === 0) {
+    return <p className="empty-hint">채점할 제출물이 아직 없습니다.</p>;
+  }
+  return (
+    <div className="judge-panel">
+      {judgeable.map((team) => (
+        <article key={team.id} className="judge-card">
+          <h4>{team.name}</h4>
+          <p className="submission-summary">{team.submission!.title}</p>
+          <div className="score-rounds">
+            {ROUNDS.map((round) => (
+              <ScoreForm
+                key={round}
+                round={round}
+                submissionId={team.submission!.id}
+                existing={myScores.find(
+                  (s) => s.submission === team.submission!.id && s.round === round
+                )}
+                onScored={onScored}
+              />
+            ))}
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+interface ScoreFormProps {
+  round: ScoreRound;
+  submissionId: number;
+  existing: Score | undefined;
+  onScored: () => void;
+}
+
+function ScoreForm({ round, submissionId, existing, onScored }: ScoreFormProps) {
+  const [value, setValue] = useState(existing?.value ?? '');
+  const [comment, setComment] = useState(existing?.comment ?? '');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      await upsertScore(submissionId, round, existing?.id, { value, comment });
+      onScored();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '채점 저장에 실패했습니다');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="score-form" onSubmit={handleSubmit}>
+      <label className="score-round-label">{ROUND_LABEL[round]}</label>
+      <input
+        type="number"
+        min={0}
+        max={100}
+        step="0.5"
+        placeholder="점수"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        required
+      />
+      <textarea
+        placeholder="코멘트 (선택)"
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+      />
+      {error && <p className="form-error">{error}</p>}
+      <button type="submit" disabled={busy}>
+        {existing ? '점수 수정' : '점수 저장'}
+      </button>
+    </form>
   );
 }
 

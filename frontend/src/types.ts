@@ -39,6 +39,25 @@ export interface Team {
 
 export type ScoreRound = 'preliminary' | 'final';
 
+export interface Judge {
+  id: number;
+  contest: string;
+  user: number;
+  username: string;
+}
+
+export interface Score {
+  id: number;
+  submission: number;
+  judge: number;
+  judge_username: string;
+  round: ScoreRound;
+  value: string;
+  comment: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ScoreboardEntry {
   team_id: number;
   team_name: string;
