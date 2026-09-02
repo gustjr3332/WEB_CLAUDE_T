@@ -1,8 +1,11 @@
 # WEB_CLAUDE_T
 
 - 기존 정적 사이트(운영 중): https://gustjr3332.github.io/WEB_CLAUDE_T/
-- 신규 백엔드(배포 완료, 도메인 전환 반영 전): https://web-claude-t.onrender.com/api/contests/
-  (Render 배포본은 아직 이전 `posts` 스캐폴딩 기준이라 재배포 필요 — [남은 배포 작업](#남은-배포-작업) 참고)
+- 신규 백엔드(배포 완료, `contests` 도메인 반영됨): https://web-claude-t.onrender.com/api/contests/
+- 신규 프론트엔드(Vercel 배포 완료): https://hackman-virid.vercel.app/
+  ⚠️ **현재 프로덕션에서 회원가입/로그인 등 모든 API 호출이 404로 실패 중** — Vercel의
+  `VITE_API_BASE_URL` 환경변수에 `/api`가 빠져 있음. [알려진 이슈](#알려진-이슈-2026-09-02) 참고,
+  Vercel 대시보드에서 값 수정 후 재배포 필요.
 
 ## 개요
 
@@ -96,6 +99,11 @@ cp .env.example .env          # VITE_API_BASE_URL 확인 (기본: http://127.0.0
 npm run dev                   # http://localhost:5173
 ```
 
+**Windows 호스트에서 직접 개발 시 주의**: `node_modules`를 devcontainer(Linux)에서
+설치한 채로 Windows npm으로 `npm run dev`를 돌리면 `.bin`의 심볼릭 링크가 Windows용
+실행 파일이 아니라서 `'vite' is not recognized...` 로 실패합니다. Windows에서 직접
+작업할 때는 `node_modules`를 지우고 Windows npm으로 다시 `npm install`하세요.
+
 ### API 엔드포인트 검증
 
 `backend/postman/WebClaude.postman_collection.json` + `WebClaude.postman_environment.json`을
@@ -136,12 +144,33 @@ Postman에 가져오면 회원가입/로그인(JWT), 대회 CRUD, 팀 생성/참
 
 ### 남은 배포 작업
 
-- **Render 재배포 필요**: `posts` 앱을 제거하고 `contests` 도메인으로 교체했지만
-  (2026-09-01), Render에는 아직 재배포하지 않았습니다. 재배포 시 `migrate`가
-  새 `contests` 마이그레이션을 적용하며, 기존 `posts_post` 테이블은 애플리케이션
-  코드에서 더 이상 참조하지 않으니 그대로 두거나 수동으로 정리하면 됩니다.
-- 프론트엔드 배포 도메인이 정해지면 `CORS_ALLOWED_ORIGINS`에 추가
+- ~~Render 재배포 필요~~ **완료 확인됨** (2026-09-02): `contests` 도메인이 반영된 상태로
+  `/api/auth/register/`, `/api/contests/`가 정상 응답하는 것을 직접 확인했습니다.
+- ~~프론트엔드 배포 도메인이 정해지면 CORS_ALLOWED_ORIGINS에 추가~~ **완료**:
+  `CORS_ALLOWED_ORIGINS`에 `https://hackman-virid.vercel.app` 반영되어 preflight
+  정상 응답 확인함.
 - 커스텀 도메인 연결 여부 결정 (선택)
+
+### Django admin으로 가입 계정 확인하기
+
+가입된 사용자 목록은 별도 API가 없고 Django admin(`/admin/`)에서 확인합니다. superuser가
+없으면 먼저 만들어야 합니다:
+
+```bash
+cd backend
+python manage.py createsuperuser
+```
+
+Render(프로덕션)는 대시보드의 **Shell** 탭에서 같은 명령을 실행하면 됩니다. 계정 목록만
+빠르게 볼 때는 admin 대신 아래처럼 shell 한 줄로도 확인 가능합니다:
+
+```bash
+python manage.py shell -c "
+from django.contrib.auth.models import User
+for u in User.objects.all():
+    print(u.id, u.username, u.email, u.date_joined)
+"
+```
 
 ## 프론트엔드 배포처 분석
 
@@ -188,8 +217,9 @@ Vercel로 옮기는 조합을 권장합니다.
 2. ~~핵심 모델/엔드포인트 설계 (게시글, 좋아요 등 기존 기능부터 이식)~~ 완료
 3. ~~React(TS) 프로젝트 세팅, 기존 UI를 컴포넌트로 재구성해 API 연동~~ 완료
 4. ~~Postman 컬렉션 작성 및 엔드포인트 검증~~ 완료
-5. 백엔드+DB 배포: ~~Render~~ 완료 / 프론트 배포처: **Vercel 권장**, 실제 연결은
-   Vercel 계정 로그인이 필요해 사람이 직접 해야 함 (미착수)
+5. 백엔드+DB 배포: ~~Render~~ 완료 / 프론트 배포처: ~~Vercel~~ **완료** —
+   https://hackman-virid.vercel.app (단, 환경변수 버그로 API 호출 실패 중 —
+   [알려진 이슈](#알려진-이슈-2026-09-02) 참고)
 6. ~~기존 정적 사이트와 기능 패리티 확인 후 전환~~ **스킵** (제품 방향 전환으로 무의미해짐)
 
 ### 2026-09-01 재수립: 해커톤/공모전 도메인 실행 계획
@@ -209,9 +239,33 @@ Vercel로 옮기는 조합을 권장합니다.
 6. ~~**프론트엔드 연동** — React에 로그인/대회 목록/팀 관리/제출/스코어보드 UI 구성~~
    완료 (회원가입→로그인→팀 생성→제출→스코어보드 흐름을 실제 브라우저로 검증함).
    심사위원용 채점 화면은 범위 밖이라 아직 없음 (심사는 API/관리자 화면으로만 가능).
-   Vercel 실배포는 계정 로그인이 필요해 사람이 직접 진행해야 함 (미착수)
+   ~~Vercel 실배포는 계정 로그인이 필요해 사람이 직접 진행해야 함 (미착수)~~
+   **완료** (2026-09-02): https://hackman-virid.vercel.app 배포됨. 단, 아래
+   [알려진 이슈](#알려진-이슈-2026-09-02) 로 인해 현재 프로덕션에서 회원가입이 안 됨.
 7. **학과/동아리 공모전 시범 적용** — 소규모 실사용 파일럿 진행, 피드백 반영해
    반복 개선 (실제 대회 운영이 필요해 이후 별도로 진행)
 
-1~6번 코딩은 2026-09-01 세션에서 완료했습니다. 남은 건 Vercel 프론트 배포 연결
-(사람이 직접) 과 Render 백엔드 재배포, 그리고 7번 실제 파일럿입니다.
+1~6번 코딩과 Render/Vercel 배포는 완료했습니다. 남은 건 아래 알려진 이슈 수정과
+7번 실제 파일럿입니다.
+
+## 알려진 이슈 (2026-09-02)
+
+### Vercel 프로덕션에서 모든 API 호출 404
+
+**증상**: https://hackman-virid.vercel.app 에서 회원가입/로그인 등 백엔드 호출이
+전부 "요청에 실패했습니다 (404)".
+
+**원인**: Vercel 프로젝트의 `VITE_API_BASE_URL` 환경변수가 `https://web-claude-t.onrender.com`
+로 설정되어 있음(끝에 `/api`가 빠짐). `frontend/src/api.ts`는
+`${API_BASE_URL}${path}` 형태로 요청을 만들기 때문에, 실제 요청이
+`https://web-claude-t.onrender.com/auth/register/`로 나가는데 Django에는 이 경로가
+없고 `/api/auth/register/`만 존재함 → 404. 배포된 JS 번들(`assets/index-*.js`)에서
+baked-in 값을 직접 확인해서 원인을 특정함. 백엔드 자체와 CORS(`hackman-virid.vercel.app`
+허용됨)는 정상.
+
+**해결 방법** (Vercel 계정 로그인 필요, 아직 미완료):
+1. Vercel 대시보드 → 해당 프로젝트 → Settings → Environment Variables
+2. `VITE_API_BASE_URL` 값을 `https://web-claude-t.onrender.com/api` 로 수정
+   (`/api` 추가)
+3. Deployments 탭에서 최신 배포 Redeploy (Vite는 빌드 시점에 env를 박아 넣으므로
+   값만 바꾸고 재배포하지 않으면 반영 안 됨)
