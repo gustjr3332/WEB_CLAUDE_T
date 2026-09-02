@@ -1,18 +1,19 @@
 # WEB_CLAUDE_T
 
-- 기존 정적 사이트(운영 중): https://gustjr3332.github.io/WEB_CLAUDE_T/
-- 신규 백엔드(배포 완료, `contests` 도메인 반영됨): https://web-claude-t.onrender.com/api/contests/
-- 신규 프론트엔드(Vercel 배포 완료): https://hackman-virid.vercel.app/
-  ⚠️ **현재 프로덕션에서 회원가입/로그인 등 모든 API 호출이 404로 실패 중** — Vercel의
-  `VITE_API_BASE_URL` 환경변수에 `/api`가 빠져 있음. [알려진 이슈](#알려진-이슈-2026-09-02) 참고,
-  Vercel 대시보드에서 값 수정 후 재배포 필요.
+- 백엔드: https://web-claude-t.onrender.com/api/contests/
+- 프론트엔드: https://hackman-virid.vercel.app/
+
+해커톤/공모전 운영 플랫폼입니다. Django REST Framework 백엔드(Render 배포) +
+React/Vite 프론트엔드(Vercel 배포)로 구성됩니다.
 
 ## 개요
 
-기존 버전은 정적 HTML/CSS/JS + Google Apps Script(Sheets) 조합으로, 좋아요 집계
+초기 버전은 정적 HTML/CSS/JS + Google Apps Script(Sheets) 조합으로, 좋아요 집계
 정도의 단순 기능만 처리할 수 있었습니다. 서비스를 실제로 확장할 계획이라
 Django/React 기반 풀스택 구조로 전환했습니다 (2026-08-28 시작, 2026-08-31 백엔드
-배포 완료).
+배포 완료). 초기 정적 사이트와 Google Apps Script 백엔드는 제품 방향이 해커톤
+플랫폼으로 확정되면서 더 이상 쓸모가 없어져 저장소에서 제거했습니다
+(2026-09-02, 아래 "마이그레이션 메모" 참고).
 
 ### 제품 방향 전환 (2026-08-31)
 
@@ -38,16 +39,11 @@ Django/React 전환은 완료됐지만, 이 저장소의 최종 목적지는 블
 모델로 교체될 예정입니다. 우선순위는 (1) 프론트엔드 배포 확정 → (2) 곧바로
 해커톤 플랫폼 기능 개발 착수입니다.
 
-레거시 정적 사이트(`index.html`/`script.js`/Apps Script)는 당장 삭제하지 않고
-그대로 GitHub Pages에 남겨두되, 더 이상 패리티 기준으로 취급하지 않습니다.
-
 ## 저장소 구조
 
 ```
 .
-├── index.html / script.js / style.css / config.js / like-widget.*  # 레거시 정적 사이트 (운영 중, GitHub Pages)
-├── apps-script/            # 레거시 백엔드: Google Apps Script + Sheets (Code.gs, README.md)
-├── backend/                # 신규 백엔드: Django + DRF + PostgreSQL
+├── backend/                # 백엔드: Django + DRF + PostgreSQL
 │   ├── config/              # 프로젝트 설정 (settings.py, urls.py, wsgi.py)
 │   ├── contests/             # 대회/팀/제출물/심사 도메인 앱 (models, serializers,
 │   │                           permissions, views, migrations) — posts 앱 대체
@@ -55,7 +51,7 @@ Django/React 전환은 완료됐지만, 이 저장소의 최종 목적지는 블
 │   ├── docker-compose.yml       # 로컬 PostgreSQL 컨테이너
 │   ├── Procfile                  # 배포 시작 명령 (Render)
 │   └── requirements.txt
-├── frontend/                # 신규 프론트엔드: React + TypeScript + Vite
+├── frontend/                # 프론트엔드: React + TypeScript + Vite
 │   └── src/                    # App.tsx, AuthPanel.tsx, ContestDetail.tsx, api.ts, types.ts
 └── .devcontainer/            # Python+Node+PostgreSQL 개발 컨테이너 (VS Code Dev Containers)
 ```
@@ -69,7 +65,7 @@ Django/React 전환은 완료됐지만, 이 저장소의 최종 목적지는 블
 | DB | PostgreSQL 16 | 로컬 개발은 Docker, 배포는 Render 관리형 DB |
 | API 테스트 | Postman | `backend/postman/`에 컬렉션·환경 파일로 관리 |
 | 배포(백엔드) | Render (Web Service + 관리형 PostgreSQL) | gunicorn + whitenoise |
-| 배포(프론트) | 미정 — 아래 [프론트엔드 배포처 분석](#프론트엔드-배포처-분석) 참고 | |
+| 배포(프론트) | Vercel | https://hackman-virid.vercel.app — 선정 근거는 [프론트엔드 배포처 분석](#프론트엔드-배포처-분석-2026-08-31-결정-기록) 참고 |
 | 향후 하이브리드 앱 | Flutter | 같은 Django REST API를 그대로 재사용 예정 |
 
 ## 로컬 개발 환경
@@ -172,13 +168,14 @@ for u in User.objects.all():
 "
 ```
 
-## 프론트엔드 배포처 분석
+## 프론트엔드 배포처 분석 (2026-08-31 결정 기록)
 
+Vercel 배포는 이미 완료됐고, 아래는 당시 결정 근거를 남겨둔 기록입니다.
 Vite로 빌드되는 순수 정적 SPA(`frontend/dist`)라 정적 호스팅 어디든 올릴 수 있지만,
 빌드 시점에 `VITE_API_BASE_URL` 환경변수 주입이 필요하고 Render 백엔드와의 CORS
 설정이 걸려있어 아래 기준으로 비교했습니다.
 
-| 기준 | GitHub Pages (현행 레거시) | Vercel | Netlify | Cloudflare Pages |
+| 기준 | GitHub Pages (당시 레거시) | Vercel | Netlify | Cloudflare Pages |
 |---|---|---|---|---|
 | Vite/React 지원 | 수동 설정 필요 (`base` 경로, Actions 워크플로 직접 작성) | 자동 감지, 설정 거의 불필요 | 자동 감지, 설정 거의 불필요 | 자동 감지, 설정 거의 불필요 |
 | 빌드 시 환경변수 UI | 없음 (Actions 워크플로 secrets로 우회해야 함) | 대시보드에서 바로 관리 | 대시보드에서 바로 관리 | 대시보드에서 바로 관리 |
@@ -196,17 +193,13 @@ GUI로 관리할 수 있어 지금 백엔드 배포에서 Render 환경변수를
 비슷합니다. PR 프리뷰 배포도 기본 제공되어 이후 기능을 늘려갈 때(회원, 댓글 등)
 변경 사항을 배포 전에 미리 볼 수 있다는 이점이 큽니다.
 
-**차선책**: 지금 그대로 GitHub Pages를 쓰고 싶다면 유지 가능하지만, Vite SPA 특성상
-`vite.config.ts`에 `base` 경로 설정, GitHub Actions 빌드 워크플로 작성, SPA
-새로고침 404 우회(`404.html`을 `index.html` 복사본으로 두는 방식) 등 추가 설정이
-필요합니다. 레거시 정적 사이트는 지금처럼 Pages에 남겨두고, 신규 React 앱만
-Vercel로 옮기는 조합을 권장합니다.
-
 ## 마이그레이션 메모
 
-- 기존 `index.html` / `script.js` / `like-widget.*` / Apps Script 백엔드는
-  당장 걷어내지 않고 GitHub Pages에 그대로 둡니다. 다만 위 "제품 방향 전환"에
-  따라 더 이상 기능 패리티 기준으로 삼지 않습니다.
+- 초기 `index.html` / `script.js` / `like-widget.*` / `apps-script/`(Google Apps
+  Script 백엔드)는 GitHub Pages에 당분간 남겨뒀었지만, 제품 방향이 해커톤 플랫폼으로
+  완전히 확정되면서 패리티 기준으로서의 가치가 없어져 **2026-09-02에 저장소에서
+  전부 삭제**했습니다 (`gustjr3332.github.io/WEB_CLAUDE_T` GitHub Pages 사이트도
+  함께 내려감). 필요하면 git 히스토리(이 커밋 이전)에서 복구 가능합니다.
 - Flutter 앱은 더 이상 "향후 옵션"이 아니라 확정된 방향입니다 — 해커톤 플랫폼을
   웹+모바일 하이브리드로 만들 계획이므로, Django REST API 설계 시 "웹 전용"이
   아니라 "웹+앱 공용"을 염두에 두고 인증(JWT 등)·응답 포맷을 잡아야 합니다.
@@ -218,8 +211,7 @@ Vercel로 옮기는 조합을 권장합니다.
 3. ~~React(TS) 프로젝트 세팅, 기존 UI를 컴포넌트로 재구성해 API 연동~~ 완료
 4. ~~Postman 컬렉션 작성 및 엔드포인트 검증~~ 완료
 5. 백엔드+DB 배포: ~~Render~~ 완료 / 프론트 배포처: ~~Vercel~~ **완료** —
-   https://hackman-virid.vercel.app (단, 환경변수 버그로 API 호출 실패 중 —
-   [알려진 이슈](#알려진-이슈-2026-09-02) 참고)
+   https://hackman-virid.vercel.app
 6. ~~기존 정적 사이트와 기능 패리티 확인 후 전환~~ **스킵** (제품 방향 전환으로 무의미해짐)
 
 ### 2026-09-01 재수립: 해커톤/공모전 도메인 실행 계획
@@ -238,34 +230,35 @@ Vercel로 옮기는 조합을 권장합니다.
    점수 집계 스코어보드 API~~ 완료 (REST 폴링 기반 MVP로 구현, WebSocket은 후속 과제)
 6. ~~**프론트엔드 연동** — React에 로그인/대회 목록/팀 관리/제출/스코어보드 UI 구성~~
    완료 (회원가입→로그인→팀 생성→제출→스코어보드 흐름을 실제 브라우저로 검증함).
-   심사위원용 채점 화면은 범위 밖이라 아직 없음 (심사는 API/관리자 화면으로만 가능).
    ~~Vercel 실배포는 계정 로그인이 필요해 사람이 직접 진행해야 함 (미착수)~~
-   **완료** (2026-09-02): https://hackman-virid.vercel.app 배포됨. 단, 아래
-   [알려진 이슈](#알려진-이슈-2026-09-02) 로 인해 현재 프로덕션에서 회원가입이 안 됨.
-7. **학과/동아리 공모전 시범 적용** — 소규모 실사용 파일럿 진행, 피드백 반영해
+   **완료** (2026-09-02): https://hackman-virid.vercel.app 배포됨.
+7. ~~**심사위원용 채점 화면**~~ **완료** (2026-09-02): 대회 상세 화면에서 로그인한
+   사용자가 해당 대회의 심사위원으로 배정돼 있으면 "심사하기" 섹션이 자동으로
+   나타나고, 팀별 제출물마다 예선/결선 점수·코멘트를 입력·수정할 수 있음. 로컬에서
+   실제 브라우저로 채점 생성(POST)·수정(PATCH)·스코어보드 반영까지 검증함. 다만
+   **심사위원 배정 UI는 아직 없음** — 지금은 조직자가 Django admin이나 API로
+   `Judge`를 직접 등록해야 함.
+8. **학과/동아리 공모전 시범 적용** — 소규모 실사용 파일럿 진행, 피드백 반영해
    반복 개선 (실제 대회 운영이 필요해 이후 별도로 진행)
 
-1~6번 코딩과 Render/Vercel 배포는 완료했습니다. 남은 건 아래 알려진 이슈 수정과
-7번 실제 파일럿입니다.
+1~7번 코딩과 Render/Vercel 배포는 완료했습니다. 남은 건 심사위원 배정 UI와
+8번 실제 파일럿입니다.
 
-## 알려진 이슈 (2026-09-02)
+## 해결된 이슈 (기록용)
 
-### Vercel 프로덕션에서 모든 API 호출 404
+### Vercel 프로덕션에서 모든 API 호출 404 (2026-09-02 발견 및 해결)
 
 **증상**: https://hackman-virid.vercel.app 에서 회원가입/로그인 등 백엔드 호출이
 전부 "요청에 실패했습니다 (404)".
 
 **원인**: Vercel 프로젝트의 `VITE_API_BASE_URL` 환경변수가 `https://web-claude-t.onrender.com`
-로 설정되어 있음(끝에 `/api`가 빠짐). `frontend/src/api.ts`는
+로 설정되어 있었음(끝에 `/api`가 빠짐). `frontend/src/api.ts`는
 `${API_BASE_URL}${path}` 형태로 요청을 만들기 때문에, 실제 요청이
 `https://web-claude-t.onrender.com/auth/register/`로 나가는데 Django에는 이 경로가
 없고 `/api/auth/register/`만 존재함 → 404. 배포된 JS 번들(`assets/index-*.js`)에서
 baked-in 값을 직접 확인해서 원인을 특정함. 백엔드 자체와 CORS(`hackman-virid.vercel.app`
-허용됨)는 정상.
+허용됨)는 정상이었음.
 
-**해결 방법** (Vercel 계정 로그인 필요, 아직 미완료):
-1. Vercel 대시보드 → 해당 프로젝트 → Settings → Environment Variables
-2. `VITE_API_BASE_URL` 값을 `https://web-claude-t.onrender.com/api` 로 수정
-   (`/api` 추가)
-3. Deployments 탭에서 최신 배포 Redeploy (Vite는 빌드 시점에 env를 박아 넣으므로
-   값만 바꾸고 재배포하지 않으면 반영 안 됨)
+**해결**: Vercel 대시보드 → Settings → Environment Variables에서
+`VITE_API_BASE_URL`을 `https://web-claude-t.onrender.com/api`로 수정 후 재배포.
+수정 후 프로덕션에서 실제 브라우저로 회원가입→자동 로그인까지 재검증 완료.
