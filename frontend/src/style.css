@@ -510,3 +510,342 @@ body {
   color: var(--muted);
   font-family: var(--font-mono);
 }
+
+/* ---------- organizer: create contest ---------- */
+
+.organizer-bar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.organizer-bar button,
+.contest-form .form-actions button[type='submit'] {
+  background: var(--ink);
+  color: var(--paper);
+  border: none;
+  border-radius: 2px;
+  padding: 9px 14px;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.contest-form {
+  border: 1px solid var(--line);
+  background: var(--paper-raised);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.contest-form .field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+}
+
+.contest-form .field > span {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.contest-form .field small {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.contest-form .field-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.contest-form input,
+.contest-form textarea {
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  font-family: var(--font-ui);
+  background: #fff;
+  color: var(--ink);
+}
+
+.contest-form input[type='datetime-local'] {
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+}
+
+.contest-form .form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.contest-form button.ghost {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 9px 14px;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
+.contest-form button:disabled,
+.organizer-bar button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.role-tag {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--signal);
+  color: var(--signal);
+  border-radius: 2px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
+
+/* ---------- detail header extras ---------- */
+
+.detail-header-row {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.detail-dates {
+  margin: 0 0 6px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* ---------- status transition control (organizer only) ---------- */
+
+.status-control-wrap {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.status-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.status-control button {
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.status-control button:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.status-control button.active {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+
+.status-control button.active.status-recruiting,
+.status-control button.active.status-ongoing {
+  background: var(--live);
+  border-color: var(--live);
+}
+
+.status-control button.active.status-judging {
+  background: var(--judging);
+  border-color: var(--judging);
+}
+
+.status-control button:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.status-control .arrow {
+  color: var(--line);
+  font-size: 0.9rem;
+}
+
+.status-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* ---------- scoreboard head: tabs + live indicator ---------- */
+
+.scoreboard-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.scoreboard-head .section-heading {
+  margin: 0;
+}
+
+.seg-tabs {
+  display: inline-flex;
+  border: 1px solid var(--line);
+}
+
+.seg-tabs button {
+  background: var(--paper-raised);
+  border: none;
+  padding: 5px 14px;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.seg-tabs button + button {
+  border-left: 1px solid var(--line);
+}
+
+.seg-tabs button.active {
+  background: var(--signal);
+  color: var(--paper);
+}
+
+.live-indicator {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.live-indicator::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line);
+}
+
+.live-indicator.live {
+  color: var(--live);
+}
+
+.live-indicator.live::before {
+  background: var(--live);
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+
+.live-indicator.error {
+  color: var(--judging);
+}
+
+.live-indicator.error::before {
+  background: var(--judging);
+}
+
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-indicator.live::before {
+    animation: none;
+  }
+}
+
+/* ---------- scoreboard: rank column ---------- */
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.scoreboard-table th.rank,
+.scoreboard-table td.rank {
+  width: 56px;
+  text-align: right;
+  font-family: var(--font-mono);
+  padding-right: 16px;
+}
+
+.scoreboard-table td.rank {
+  color: var(--muted);
+}
+
+.scoreboard-table tr.rank-first td.rank,
+.scoreboard-table tr.rank-first td.score {
+  font-weight: 700;
+  color: var(--signal);
+}
+
+.scoreboard-table tr.rank-first td.rank {
+  color: var(--ink);
+}
+
+/* ---------- status-gated hints ---------- */
+
+.lock-hint {
+  margin: 6px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--judging);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.score-form.disabled {
+  opacity: 0.6;
+}
+
+.score-form input:disabled,
+.score-form textarea:disabled {
+  background: var(--paper);
+  cursor: not-allowed;
+}
+
+.score-form button:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.saved-at {
+  margin-left: 8px;
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.submission-summary a {
+  color: var(--signal);
+}

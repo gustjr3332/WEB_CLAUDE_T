@@ -59,6 +59,13 @@ class ContestSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['created_at', 'updated_at']
 
+    def validate(self, attrs):
+        start_at = attrs.get('start_at', getattr(self.instance, 'start_at', None))
+        end_at = attrs.get('end_at', getattr(self.instance, 'end_at', None))
+        if start_at and end_at and end_at < start_at:
+            raise serializers.ValidationError({'end_at': '종료 일시는 시작 일시보다 빨라서는 안 됩니다.'})
+        return attrs
+
 
 class JudgeSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
@@ -100,3 +107,4 @@ class ScoreboardEntrySerializer(serializers.Serializer):
     round = serializers.CharField()
     average_score = serializers.DecimalField(max_digits=6, decimal_places=2, allow_null=True)
     vote_count = serializers.IntegerField()
+    rank = serializers.IntegerField(allow_null=True)

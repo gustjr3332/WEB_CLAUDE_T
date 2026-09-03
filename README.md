@@ -12,10 +12,24 @@ Django REST Framework + React(Vite) 기반 해커톤/공모전 운영 플랫폼�
 
 `Contest` — `Team` — `Participant` / `Submission` — `Judge` — `Score`
 
-- 대회 상태 전이: 모집중 → 진행중 → 심사중 → 종료
+- 대회 상태 전이: 모집중 → 진행중 → 심사중 → 종료 (운영자가 대회 상세 화면에서 전환)
 - 역할: 운영자(staff) / 참가자 / 심사위원
-- 채점: 팀의 제출물 1건에 대해 심사위원별로 예선/결선 라운드 점수·코멘트 입력,
-  스코어보드는 라운드별 평균 점수와 심사 수를 집계
+- 채점: 팀의 제출물 1건에 대해 심사위원별로 예선/결선 라운드 점수·코멘트 입력.
+  같은 심사위원이 같은 라운드에 다시 저장하면 기존 점수를 덮어쓴다(upsert).
+- 스코어보드: 라운드별 평균 점수·심사 수·**순위**를 집계. 동점은 같은 순위를 공유하고 다음
+  순위는 건너뛴다(1, 1, 3). 점수가 없는 팀은 순위 없이 맨 아래에 표시.
+
+대회 상태에 따라 서버가 허용하는 동작 (프론트는 같은 규칙으로 폼을 숨기고, 강제는 서버가 함):
+
+| 동작 | 모집중 | 진행중 | 심사중 | 종료 |
+|---|:-:|:-:|:-:|:-:|
+| 팀 생성 / 참가 | O | O | – | – |
+| 제출물 등록 / 수정 | O | O | – | – |
+| 심사위원 채점 | – | – | O | – |
+| 스코어보드 조회 | O | O | O | O |
+
+허용되지 않는 상태에서 요청하면 `403` + `"… (현재 상태: 심사중)"` 형태의 메시지를 돌려준다.
+규칙 정의: `backend/contests/views.py`의 `*_STATUSES`, `frontend/src/rules.ts`.
 
 ## 저장소 구조
 
@@ -30,7 +44,8 @@ Django REST Framework + React(Vite) 기반 해커톤/공모전 운영 플랫폼�
 │   ├── Procfile                  # 배포 시작 명령 (Render)
 │   └── requirements.txt
 ├── frontend/                # 프론트엔드: React + TypeScript + Vite
-│   └── src/                    # App.tsx, AuthPanel.tsx, ContestDetail.tsx, api.ts, types.ts
+│   └── src/                    # App.tsx, AuthPanel.tsx, ContestForm.tsx, ContestDetail.tsx,
+│                                 api.ts, types.ts, labels.ts, rules.ts, style.css
 └── .devcontainer/            # Python+Node+PostgreSQL 개발 컨테이너 (VS Code Dev Containers)
 ```
 
@@ -65,6 +80,34 @@ python manage.py runserver    # http://127.0.0.1:8000
 `DATABASE_URL` 환경변수가 설정되어 있으면 `POSTGRES_*` 값 대신 그걸 우선 사용합니다
 (Render 등 PaaS 배포용).
 
+Docker를 띄우지 않고 빠르게 돌려볼 때는 SQLite를 지정하면 됩니다:
+
+```powershell
+# PowerShell
+$env:DATABASE_URL = "sqlite:///$PWD/dev.sqlite3"; python manage.py migrate; python manage.py runserver
+```
+
+```bash
+# bash
+DATABASE_URL="sqlite:///$(pwd)/dev.sqlite3" python manage.py migrate && DATABASE_URL="sqlite:///$(pwd)/dev.sqlite3" python manage.py runserver
+```
+
+### 백엔드 테스트
+
+`backend/contests/tests.py`에 API 테스트 37건(인증·토큰 갱신, 대회 CRUD·상태 전이, 상태별
+동작 제한, 팀/제출물 권한, 심사위원 배정, 스코어보드 순위 집계)이 있습니다. Postgres가 없어도
+SQLite로 실행됩니다:
+
+```powershell
+# PowerShell
+$env:DATABASE_URL = "sqlite:///$PWD/test.sqlite3"; python manage.py test
+```
+
+```bash
+# bash
+DATABASE_URL="sqlite:///$(pwd)/test.sqlite3" python manage.py test
+```
+
 ### 프론트엔드
 
 ```bash
@@ -72,7 +115,21 @@ cd frontend
 npm install
 cp .env.example .env          # VITE_API_BASE_URL 확인 (기본: http://127.0.0.1:8000/api)
 npm run dev                   # http://localhost:5173
+npm run build                 # tsc 타입 검사 + 프로덕션 번들 (배포 전 확인용)
 ```
+
+프론트 동작 메모:
+
+- 로그인 시 access/refresh 토큰을 모두 `localStorage`에 저장하고, API가 `401`을 돌려주면
+  refresh 토큰으로 한 번 재발급한 뒤 원 요청을 재시도합니다(동시 요청은 재발급 1회로 합침).
+  재발급도 실패하면 로그아웃 처리 후 "로그인이 만료되었습니다" 안내가 뜹니다.
+- 대회 상세 화면은 **5초마다** 팀 목록·스코어보드·대회 상태를 다시 가져옵니다(탭이 백그라운드면
+  건너뛰고, 다시 보이면 즉시 갱신). 운영자가 상태를 바꾸면 참가자·심사위원 화면도 다음 폴링에서
+  폼 잠금/해제가 따라갑니다. 종료된 대회는 30초 주기로만 확인합니다. 상단
+  `LIVE · 5초마다 갱신 · hh:mm:ss` 표시로 마지막 갱신 시각을 확인할 수 있고, 요청이 실패하면
+  `연결 끊김 · 재시도 중`으로 바뀝니다.
+- 운영자(staff) 계정은 목록 화면에서 **새 대회 만들기**, 상세 화면에서 **상태 전이**
+  (모집중 → 진행중 → 심사중 → 종료)와 심사위원 배정을 할 수 있습니다.
 
 ### API 엔드포인트 검증
 
@@ -137,12 +194,26 @@ for u in User.objects.all():
 - 프론트엔드 리디자인 — `DESIGN.md` 기준 헤어라인 리스트 + 히어로 스코어보드 (2026-09-03)
 - **심사위원 배정 UI** — 대회 상세 화면에서 운영자(staff)가 아이디로 심사위원을 배정/해제
   (`GET /api/auth/me/`로 운영자 여부 확인, `POST/DELETE /api/judges/`) (2026-09-03)
+- **대회 생성 / 상태 전이 UI** — 운영자가 목록 화면에서 대회를 만들고(slug 자동 제안,
+  시작·종료 검증), 상세 화면에서 모집중 → 진행중 → 심사중 → 종료를 전환 (2026-09-03)
+- **대회 상태 기반 동작 제한** — 팀 생성/참가·제출물 수정은 모집중/진행중에만, 채점은 심사중에만.
+  서버가 `403`으로 강제하고 프론트는 같은 규칙으로 폼을 잠금 (2026-09-03)
+- **스코어보드 실시간화(REST 폴링)** — 5초 주기 폴링 + LIVE 인디케이터, 예선/결선 라운드 탭,
+  순위 컬럼(동점 공동 순위), 대회 상태 변경도 폴링으로 전파, 종료된 대회는 30초 주기 (2026-09-03)
+- **JWT 액세스 토큰 자동 갱신** — `401` 시 refresh 토큰으로 재발급 후 재시도, 실패 시 세션
+  만료 안내 (2026-09-03)
+- 보안/안정성 수정 — 타 팀에 제출물 생성 가능했던 구멍 차단, 같은 라운드 중복 채점 시 500 →
+  upsert, 대회 종료일 < 시작일 검증 (2026-09-03)
+- 백엔드 API 테스트 37건 (SQLite로 Docker 없이 실행 가능) (2026-09-03)
 
 ### 남은 작업
 
 - **학과/동아리 공모전 시범 적용** — 소규모 실사용 파일럿 진행, 피드백 반영해 반복 개선.
+  운영자 계정은 `python manage.py createsuperuser`(또는 admin에서 `is_staff` 체크)로 만든다.
 - (선택) 커스텀 도메인 연결
-- (후속 과제) 스코어보드 실시간화 — 현재는 REST 폴링 기반 MVP, WebSocket 전환 검토
+- (후속 과제) 스코어보드 WebSocket 전환 — 현재 5초 REST 폴링으로 파일럿 규모(수십 팀·수 명의
+  심사위원)는 충분. Render 단일 프로세스에서 Django Channels + Redis를 붙이는 비용 대비 이점이
+  작아 보류. 참가 팀이 수백 단위로 늘거나 폴링 부하가 문제 되면 재검토.
 
 ---
 

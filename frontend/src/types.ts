@@ -12,6 +12,14 @@ export interface Contest {
   team_count: number;
 }
 
+export interface ContestInput {
+  slug: string;
+  name: string;
+  description: string;
+  start_at: string;
+  end_at: string;
+}
+
 export interface Participant {
   id: number;
   team: number;
@@ -69,6 +77,8 @@ export interface ScoreboardEntry {
   round: ScoreRound;
   average_score: string | null;
   vote_count: number;
+  /** 라운드 내 순위. 점수가 없는 팀은 null. 동점은 같은 순위. */
+  rank: number | null;
 }
 
 export interface AuthTokens {
