@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AUTH_EXPIRED_EVENT, fetchContests, fetchMe, getStoredUsername, logout } from './api';
+import {
+  AUTH_EXPIRED_EVENT,
+  fetchContests,
+  fetchMe,
+  getStoredUsername,
+  logout,
+  onStoredUsernameChange,
+  storeUsername,
+} from './api';
 import { AuthPanel } from './AuthPanel';
 import { ContestDetail } from './ContestDetail';
 import { ContestForm } from './ContestForm';
@@ -34,10 +42,22 @@ export default function App() {
     const handleExpired = () => {
       setUsername(null);
       setStatus('로그인이 만료되었습니다. 다시 로그인해 주세요.');
+      loadContests();
     };
     window.addEventListener(AUTH_EXPIRED_EVENT, handleExpired);
     return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleExpired);
-  }, []);
+  }, [loadContests]);
+
+  // 다른 탭에서 로그인/로그아웃하면 이 탭도 같은 계정으로 맞춘다 (토큰은 이미 localStorage 로 공유됨).
+  useEffect(
+    () =>
+      onStoredUsernameChange((stored) => {
+        setUsername(stored);
+        setStatus('');
+        loadContests();
+      }),
+    [loadContests]
+  );
 
   useEffect(() => {
     if (!username) {
@@ -48,7 +68,14 @@ export default function App() {
     let cancelled = false;
     fetchMe()
       .then((me) => {
-        if (!cancelled) setIsOrganizer(me.is_staff);
+        if (cancelled) return;
+        setIsOrganizer(me.is_staff);
+        // 로그인 폼에 친 문자열 대신 서버가 아는 정식 아이디를 쓴다. "내 팀" 판단 등이 모두
+        // 이 값과 비교하므로, 앞뒤 공백처럼 어긋나면 내 팀·채점 패널이 조용히 숨겨진다.
+        if (me.username !== username) {
+          storeUsername(me.username);
+          setUsername(me.username);
+        }
       })
       .catch(() => {
         if (!cancelled) setIsOrganizer(false);
@@ -58,15 +85,18 @@ export default function App() {
     };
   }, [username]);
 
+  // 대회 목록의 is_judge 는 로그인한 사용자에 따라 다르므로 로그인/로그아웃 직후 다시 받는다.
   function handleLogout() {
     logout();
     setUsername(null);
     setStatus('');
+    loadContests();
   }
 
   function handleLoggedIn(name: string) {
     setUsername(name);
     setStatus('');
+    loadContests();
   }
 
   // ContestDetail 의 폴링 콜백으로도 쓰이므로 참조가 안정적이어야 한다 (useCallback).
@@ -77,7 +107,8 @@ export default function App() {
       if (
         current &&
         current.updated_at === updated.updated_at &&
-        current.team_count === updated.team_count
+        current.team_count === updated.team_count &&
+        current.is_judge === updated.is_judge
       ) {
         return prev;
       }

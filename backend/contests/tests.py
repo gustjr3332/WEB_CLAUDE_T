@@ -262,7 +262,7 @@ class MeAndJudgeAssignmentTests(APITestCase):
     def test_organizer_can_assign_judge_by_username(self):
         self.client.force_authenticate(self.organizer)
         res = self.client.post('/api/judges/', {
-            'contest': self.contest.slug, 'user_username': 'participant',
+            'contest': self.contest.slug, 'username': 'participant',
         })
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertTrue(Judge.objects.filter(contest=self.contest, user=self.participant).exists())
@@ -270,14 +270,14 @@ class MeAndJudgeAssignmentTests(APITestCase):
     def test_assigning_unknown_username_fails(self):
         self.client.force_authenticate(self.organizer)
         res = self.client.post('/api/judges/', {
-            'contest': self.contest.slug, 'user_username': 'nobody',
+            'contest': self.contest.slug, 'username': 'nobody',
         })
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_non_organizer_cannot_assign_judge(self):
         self.client.force_authenticate(self.participant)
         res = self.client.post('/api/judges/', {
-            'contest': self.contest.slug, 'user_username': 'participant',
+            'contest': self.contest.slug, 'username': 'participant',
         })
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -288,6 +288,115 @@ class MeAndJudgeAssignmentTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Judge.objects.filter(pk=judge.id).exists())
 
+    def test_removing_a_judge_who_has_scored_is_blocked(self):
+        judge = Judge.objects.create(contest=self.contest, user=self.participant)
+        team = Team.objects.create(contest=self.contest, name='팀 A')
+        submission = Submission.objects.create(team=team, title='제출물 A')
+        Score.objects.create(submission=submission, judge=judge, round='preliminary', value='9')
+
+        self.client.force_authenticate(self.organizer)
+        res = self.client.delete(f'/api/judges/{judge.id}/')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(Judge.objects.filter(pk=judge.id).exists())
+        self.assertEqual(Score.objects.filter(judge=judge).count(), 1)
+
+    def test_duplicate_judge_assignment_gives_korean_message(self):
+        Judge.objects.create(contest=self.contest, user=self.participant)
+        self.client.force_authenticate(self.organizer)
+        res = self.client.post('/api/judges/', {
+            'contest': self.contest.slug, 'username': 'participant',
+        })
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        message = ''.join(str(v) for v in res.data.get('non_field_errors', res.data.values()))
+        self.assertIn('이미', message)
+
+    def test_judge_patch_is_not_allowed(self):
+        judge = Judge.objects.create(contest=self.contest, user=self.participant)
+        self.client.force_authenticate(self.organizer)
+        res = self.client.patch(f'/api/judges/{judge.id}/', {'username': 'organizer'})
+        self.assertEqual(res.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def test_contest_list_reports_is_judge_for_assigned_user(self):
+        Judge.objects.create(contest=self.contest, user=self.participant)
+        self.client.force_authenticate(self.participant)
+        res = self.client.get('/api/contests/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        entry = next(c for c in res.data if c['slug'] == self.contest.slug)
+        self.assertTrue(entry['is_judge'])
+
+    def test_contest_list_reports_is_judge_false_for_non_judge(self):
+        self.client.force_authenticate(self.participant)
+        res = self.client.get('/api/contests/')
+        entry = next(c for c in res.data if c['slug'] == self.contest.slug)
+        self.assertFalse(entry['is_judge'])
+
+    def test_anonymous_contest_list_is_judge_false(self):
+        res = self.client.get('/api/contests/')
+        entry = next(c for c in res.data if c['slug'] == self.contest.slug)
+        self.assertFalse(entry['is_judge'])
+
+
+class ContestListQueryCountTests(APITestCase):
+    """team_count/is_judge 는 annotate 로 얻으므로 대회 수가 늘어도 쿼리 수는 고정이다."""
+
+    def setUp(self):
+        self.user = User.objects.create_user('watcher', password='pw12345678')
+
+    def make_contests(self, n):
+        now = timezone.now()
+        for i in range(n):
+            contest = Contest.objects.create(
+                slug=f'q-{i}', name=f'대회 {i}', start_at=now, end_at=now
+            )
+            team = Team.objects.create(contest=contest, name='팀')
+            Judge.objects.create(contest=contest, user=self.user)
+            self.judge_for_count = Judge.objects.filter(contest=contest, user=self.user).first()
+
+    def test_query_count_is_independent_of_contest_count(self):
+        self.client.force_authenticate(self.user)
+        self.make_contests(2)
+        with self.assertNumQueries(1):
+            res = self.client.get('/api/contests/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        baseline = len(res.data)
+
+        Contest.objects.all().delete()
+        self.make_contests(6)
+        with self.assertNumQueries(1):
+            res = self.client.get('/api/contests/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), baseline + 4)
+        self.assertTrue(all(entry['is_judge'] for entry in res.data))
+
+
+class TeamListQueryCountTests(APITestCase):
+    """참가자 username 을 prefetch 하므로 팀/참가자 수가 늘어도 쿼리 수는 고정이다."""
+
+    def setUp(self):
+        self.contest = make_contest()
+        self._counter = 0
+
+    def make_teams_with_participants(self, n):
+        for _ in range(n):
+            self._counter += 1
+            i = self._counter
+            team = Team.objects.create(contest=self.contest, name=f'팀 {i}')
+            user = User.objects.create_user(f'member{i}', password='pw12345678')
+            team.participants.create(user=user)
+
+    def test_query_count_is_independent_of_team_count(self):
+        self.make_teams_with_participants(2)
+        with self.assertNumQueries(2):
+            res = self.client.get(f'/api/teams/?contest={self.contest.slug}')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        baseline = len(res.data)
+
+        self.make_teams_with_participants(6)
+        with self.assertNumQueries(2):
+            res = self.client.get(f'/api/teams/?contest={self.contest.slug}')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), baseline + 6)
+
 
 class ScoreboardTests(APITestCase):
     def setUp(self):
@@ -296,6 +405,31 @@ class ScoreboardTests(APITestCase):
         self.submission = Submission.objects.create(team=self.team, title='제출물 A')
         self.judge_user = User.objects.create_user('judge1', password='pw12345678')
         self.judge = Judge.objects.create(contest=self.contest, user=self.judge_user)
+
+    def test_staff_scores_endpoint_returns_all_by_default(self):
+        another_judge_user = User.objects.create_user('judge2', password='pw12345678')
+        another_judge = Judge.objects.create(contest=self.contest, user=another_judge_user)
+        Score.objects.create(submission=self.submission, judge=self.judge, round='preliminary', value='9')
+        Score.objects.create(submission=self.submission, judge=another_judge, round='preliminary', value='7')
+
+        staff = User.objects.create_user('staffer', password='pw12345678', is_staff=True)
+        self.client.force_authenticate(staff)
+        res = self.client.get('/api/scores/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 2)
+
+    def test_staff_scores_mine_filter_excludes_other_judges(self):
+        another_judge_user = User.objects.create_user('judge2', password='pw12345678')
+        another_judge = Judge.objects.create(contest=self.contest, user=another_judge_user)
+        Score.objects.create(submission=self.submission, judge=self.judge, round='preliminary', value='9')
+        Score.objects.create(submission=self.submission, judge=another_judge, round='preliminary', value='7')
+
+        staff_judge = User.objects.create_user('staffjudge', password='pw12345678', is_staff=True)
+        Judge.objects.create(contest=self.contest, user=staff_judge)
+        self.client.force_authenticate(staff_judge)
+        res = self.client.get(f'/api/scores/?contest={self.contest.slug}&mine=1')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data, [])
 
     def test_non_judge_cannot_score(self):
         outsider = User.objects.create_user('outsider', password='pw12345678')

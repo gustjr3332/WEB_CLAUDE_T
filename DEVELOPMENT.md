@@ -101,9 +101,9 @@ DATABASE_URL="sqlite:///$(pwd)/dev.sqlite3" python manage.py migrate && DATABASE
 
 ### 백엔드 테스트
 
-`backend/contests/tests.py`에 API 테스트 37건(인증·토큰 갱신, 대회 CRUD·상태 전이, 상태별
-동작 제한, 팀/제출물 권한, 심사위원 배정, 스코어보드 순위 집계)이 있습니다. Postgres가 없어도
-SQLite로 실행됩니다:
+`backend/contests/tests.py`에 API 테스트 47건(인증·토큰 갱신, 대회 CRUD·상태 전이, 상태별
+동작 제한, 팀/제출물 권한, 심사위원 배정, 스코어보드 순위 집계, 쿼리 수 고정 검증)이 있습니다.
+Postgres가 없어도 SQLite로 실행됩니다:
 
 ```powershell
 # PowerShell
@@ -262,6 +262,28 @@ External URL은 외부 접속용이라 Render 내부 URL과 다르고, 무료 DB
 - 보안/안정성 수정 — 타 팀에 제출물 생성 가능했던 구멍 차단, 같은 라운드 중복 채점 시 500 →
   upsert, 대회 종료일 < 시작일 검증 (2026-09-03)
 - 백엔드 API 테스트 37건 (SQLite로 Docker 없이 실행 가능) (2026-09-03)
+- **`/code-review xhigh` 결과 반영 — 알고리즘/기능 연결성 최적화** (2026-09-03)
+  - `ContestSerializer.team_count`가 대회마다 `teams.count()` 쿼리를 날리던 것을
+    `ContestViewSet.get_queryset`의 `annotate(Count/Exists)`로 바꿔, 목록 조회가 대회 수와
+    무관하게 고정 쿼리 수로 끝난다. 같은 annotate로 `is_judge`(요청자가 이 대회 심사위원인지)도
+    함께 계산해 프론트가 더 이상 `judges` 배열을 문자열로 비교하지 않는다.
+  - `TeamViewSet.get_queryset`이 참가자 `username`까지 `select_related`로 미리 가져와
+    (기존엔 팀마다 참가자 목록 직렬화 시 유저 조회가 반복됨) 5초 폴링 부하를 줄였다.
+  - **버그 수정** — 채점을 마친 심사위원을 해제하면 `Score.judge`가 `CASCADE`라 그 점수가
+    통째로 사라지던 문제. `JudgeViewSet.perform_destroy`가 `score_count > 0`이면 403으로
+    막고, 프론트는 해당 심사위원 옆에 채점 건수를 보여주며 해제 버튼을 비활성화한다.
+  - **버그 수정** — 운영자가 자기 자신을 심사위원으로 겸임하면 `GET /scores/`가 전체 심사위원의
+    점수를 돌려줘, 채점 화면이 남의 점수를 "내 점수"로 착각해 덮어쓸 수 있던 문제.
+    `?mine=1` 쿼리로 항상 본인 점수만 받도록 프론트·백엔드를 맞췄다.
+  - **버그 수정** — 로그인 폼에 입력한 문자열을 그대로 신원 비교에 썼던 것을, `/api/auth/me/`가
+    돌려주는 서버 정식 아이디로 교체(앞뒤 공백 등으로 "내 팀"·심사 패널이 조용히 숨던 문제 해소).
+    다른 탭에서 로그인/로그아웃하면 `storage` 이벤트로 이 탭도 같은 계정으로 맞춘다.
+  - `JudgeSerializer`의 쓰기 전용 `user_username`/읽기 전용 `username` 이원화를 없애고
+    `SlugRelatedField` 하나로 통일. 중복 배정 시 DRF 기본 영문 오류 대신 한국어 메시지를 준다.
+    `JudgeViewSet`은 PUT/PATCH를 막아(`http_method_names`) 심사위원의 점수를 다른 사람 것으로
+    재배정할 수 있던 경로를 닫았다.
+  - 팀 참가(`join`) 응답이 방금 만든 `Participant`를 다시 조회하던 왕복을 없애고 바로 직렬화.
+  - 회귀 테스트 10건 추가(쿼리 수 고정 검증 2건 포함, 총 47건), 프론트 `npm run build` 통과.
 
 ### 남은 작업
 

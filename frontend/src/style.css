@@ -490,6 +490,16 @@ body {
   font-size: 0.9rem;
 }
 
+.judge-assign-row .judge-meta {
+  opacity: 0.6;
+  font-size: 0.8rem;
+}
+
+.judge-assign-row button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .judge-assign-row button {
   background: none;
   border: 1px solid var(--line);

@@ -1,6 +1,6 @@
 from rest_framework import permissions
 
-from .models import Judge, Participant
+from .models import Participant
 
 
 class IsOrganizerOrReadOnly(permissions.BasePermission):
@@ -40,5 +40,3 @@ class IsAssignedJudge(permissions.BasePermission):
             return True
         return obj.judge.user_id == request.user.id
 
-    def contest_judge(self, request, contest):
-        return Judge.objects.filter(contest=contest, user=request.user).first()

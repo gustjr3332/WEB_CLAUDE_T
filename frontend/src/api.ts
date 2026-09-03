@@ -29,6 +29,19 @@ export function getStoredUsername(): string | null {
   return localStorage.getItem(USERNAME_KEY);
 }
 
+export function storeUsername(username: string) {
+  localStorage.setItem(USERNAME_KEY, username);
+}
+
+/** 다른 탭에서 로그인/로그아웃하면 이 탭도 따라가도록 storage 이벤트를 구독한다. 해제 함수를 돌려준다. */
+export function onStoredUsernameChange(handler: (username: string | null) => void): () => void {
+  const listener = (event: StorageEvent) => {
+    if (event.key === null || event.key === USERNAME_KEY) handler(getStoredUsername());
+  };
+  window.addEventListener('storage', listener);
+  return () => window.removeEventListener('storage', listener);
+}
+
 export function clearAuth() {
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
@@ -103,7 +116,7 @@ export async function login(username: string, password: string): Promise<AuthTok
   });
   localStorage.setItem(ACCESS_TOKEN_KEY, tokens.access);
   localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh);
-  localStorage.setItem(USERNAME_KEY, username);
+  storeUsername(username);
   return tokens;
 }
 
@@ -172,7 +185,7 @@ export function fetchJudges(contestSlug: string): Promise<Judge[]> {
 export function addJudge(contestSlug: string, username: string): Promise<Judge> {
   return request('/judges/', {
     method: 'POST',
-    body: JSON.stringify({ contest: contestSlug, user_username: username }),
+    body: JSON.stringify({ contest: contestSlug, username }),
   });
 }
 
@@ -182,8 +195,9 @@ export function removeJudge(judgeId: number): Promise<void> {
 
 // ---------- scores ----------
 
-export function fetchMyScores(): Promise<Score[]> {
-  return request('/scores/');
+/** 이 대회에서 내가 입력한 점수만. 운영자여도 남의 점수는 섞이지 않는다 (mine=1). */
+export function fetchMyScores(contestSlug: string): Promise<Score[]> {
+  return request(`/scores/?contest=${contestSlug}&mine=1`);
 }
 
 export function upsertScore(

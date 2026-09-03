@@ -72,7 +72,8 @@ export function ContestDetail({
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [liveError, setLiveError] = useState(false);
 
-  const isJudge = judges.some((j) => j.username === username);
+  // 클라이언트 문자열 비교 대신 서버가 판단한 값을 쓴다 (로그인 아이디 표기가 조금 달라도 안전).
+  const isJudge = contest.is_judge;
   const polling = isLive(contest.status);
 
   // 실시간으로 바뀌는 데이터(팀, 스코어보드, 대회 상태)를 주기적으로 다시 가져온다.
@@ -100,8 +101,12 @@ export function ContestDetail({
       return;
     }
     fetchJudges(contest.slug).then(setJudges).catch(() => setJudges([]));
-    fetchMyScores().then(setMyScores).catch(() => undefined);
-  }, [contest.slug, username]);
+    if (contest.is_judge) {
+      fetchMyScores(contest.slug).then(setMyScores).catch(() => undefined);
+    } else {
+      setMyScores([]);
+    }
+  }, [contest.slug, contest.is_judge, username]);
 
   const load = useCallback(() => {
     refreshLive();
@@ -343,6 +348,7 @@ function JudgeAssignPanel({ contestSlug, judges, onChanged }: JudgeAssignPanelPr
   const [username, setUsername] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [removingId, setRemovingId] = useState<number | null>(null);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -360,12 +366,16 @@ function JudgeAssignPanel({ contestSlug, judges, onChanged }: JudgeAssignPanelPr
   }
 
   async function handleRemove(judgeId: number) {
+    if (removingId !== null) return;
     setError('');
+    setRemovingId(judgeId);
     try {
       await removeJudge(judgeId);
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : '심사위원 해제에 실패했습니다');
+    } finally {
+      setRemovingId(null);
     }
   }
 
@@ -385,14 +395,25 @@ function JudgeAssignPanel({ contestSlug, judges, onChanged }: JudgeAssignPanelPr
       </form>
       {error && <p className="form-error">{error}</p>}
       <div className="judge-assign-list">
-        {judges.map((judge) => (
-          <div key={judge.id} className="judge-assign-row">
-            <span>{judge.username}</span>
-            <button type="button" onClick={() => handleRemove(judge.id)}>
-              해제
-            </button>
-          </div>
-        ))}
+        {judges.map((judge) => {
+          const scored = judge.score_count > 0;
+          return (
+            <div key={judge.id} className="judge-assign-row">
+              <span>
+                {judge.username}
+                {scored && <span className="judge-meta"> · 채점 {judge.score_count}건</span>}
+              </span>
+              <button
+                type="button"
+                disabled={scored || removingId === judge.id}
+                title={scored ? '이미 채점한 심사위원은 해제할 수 없습니다' : undefined}
+                onClick={() => handleRemove(judge.id)}
+              >
+                해제
+              </button>
+            </div>
+          );
+        })}
         {judges.length === 0 && <p className="empty-hint">배정된 심사위원이 없습니다.</p>}
       </div>
     </div>

@@ -1,4 +1,4 @@
-from django.db.models import Avg, Count
+from django.db.models import Avg, BooleanField, Count, Exists, OuterRef, Prefetch, Value
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -50,6 +50,16 @@ class ContestViewSet(viewsets.ModelViewSet):
     permission_classes = [IsOrganizerOrReadOnly]
     lookup_field = 'slug'
 
+    def get_queryset(self):
+        # team_count / is_judge 를 한 쿼리에서 같이 뽑아, 대회 수만큼 COUNT/EXISTS 쿼리가
+        # 반복되는 N+1 을 없앤다. 익명 사용자는 is_judge 가 항상 False 다.
+        user = self.request.user
+        if user.is_authenticated:
+            is_judge = Exists(Judge.objects.filter(contest=OuterRef('pk'), user=user))
+        else:
+            is_judge = Value(False, output_field=BooleanField())
+        return Contest.objects.annotate(team_count=Count('teams'), is_judge=is_judge)
+
     @action(detail=True, methods=['get'], permission_classes=[permissions.AllowAny])
     def scoreboard(self, request, slug=None):
         """Per-round ranking of every team in the contest.
@@ -57,6 +67,8 @@ class ContestViewSet(viewsets.ModelViewSet):
         Entries are grouped by round (preliminary first), ranked by average score
         using competition ranking (ties share a rank, the next rank is skipped).
         Teams without any score in a round come last with ``rank: null``.
+        Costs a fixed number of queries regardless of team/score count: one for
+        teams (submissions joined) and one grouped aggregate for scores.
         """
         contest = self.get_object()
         teams = list(contest.teams.select_related('submission'))
@@ -109,7 +121,10 @@ class TeamViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
-        queryset = Team.objects.select_related('contest').prefetch_related('participants', 'submission')
+        # 참가자의 username 까지 한 번에 가져온다 (팀 목록은 5초마다 폴링되므로 N+1 을 피한다).
+        queryset = Team.objects.select_related('contest', 'submission').prefetch_related(
+            Prefetch('participants', queryset=Participant.objects.select_related('user'))
+        )
         contest_slug = self.request.query_params.get('contest')
         if contest_slug:
             queryset = queryset.filter(contest__slug=contest_slug)
@@ -130,12 +145,10 @@ class TeamViewSet(viewsets.ModelViewSet):
             team.contest, TEAM_FORMATION_STATUSES,
             '모집중 또는 진행중 상태에서만 팀에 참가할 수 있습니다.',
         )
-        _, created = Participant.objects.get_or_create(team=team, user=request.user)
+        participant, created = Participant.objects.get_or_create(team=team, user=request.user)
         if not created:
             return Response({'detail': '이미 참가 중인 팀입니다.'}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(ParticipantSerializer(
-            Participant.objects.get(team=team, user=request.user)
-        ).data, status=status.HTTP_201_CREATED)
+        return Response(ParticipantSerializer(participant).data, status=status.HTTP_201_CREATED)
 
 
 class SubmissionViewSet(viewsets.ModelViewSet):
@@ -174,13 +187,25 @@ class SubmissionViewSet(viewsets.ModelViewSet):
 class JudgeViewSet(viewsets.ModelViewSet):
     serializer_class = JudgeSerializer
     permission_classes = [IsOrganizerOrReadOnly]
+    # 배정은 만들고 없애는 것뿐이다. PUT/PATCH 로 user/contest 를 바꾸면 그 심사위원이 입력한
+    # 점수가 통째로 다른 사람·다른 대회 것이 되므로 열어두지 않는다.
+    http_method_names = ['get', 'post', 'delete', 'head', 'options']
 
     def get_queryset(self):
-        queryset = Judge.objects.select_related('user', 'contest')
+        queryset = Judge.objects.select_related('user', 'contest').annotate(score_count=Count('scores'))
         contest_slug = self.request.query_params.get('contest')
         if contest_slug:
             queryset = queryset.filter(contest__slug=contest_slug)
         return queryset
+
+    def perform_destroy(self, instance):
+        # Score.judge 가 CASCADE 라 해제하면 그 심사위원의 점수가 모두 지워지고 순위가 바뀐다.
+        score_count = instance.scores.count()
+        if score_count:
+            raise PermissionDenied(
+                f'이미 채점한 심사위원은 해제할 수 없습니다 (입력한 점수 {score_count}건).'
+            )
+        instance.delete()
 
 
 class ScoreViewSet(viewsets.ModelViewSet):
@@ -191,9 +216,15 @@ class ScoreViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = Score.objects.select_related('submission', 'judge__user')
-        if self.request.user.is_staff:
-            return queryset
-        return queryset.filter(judge__user=self.request.user)
+        params = self.request.query_params
+        contest_slug = params.get('contest')
+        if contest_slug:
+            queryset = queryset.filter(submission__team__contest__slug=contest_slug)
+        # 운영자(staff)는 기본적으로 모든 점수를 보지만, 채점 화면은 자기 점수만 필요하다.
+        # ?mine=1 이 없으면 운영자가 심사위원을 겸할 때 남의 점수를 자기 것으로 알고 덮어쓴다.
+        if not self.request.user.is_staff or params.get('mine') in ('1', 'true'):
+            queryset = queryset.filter(judge__user=self.request.user)
+        return queryset
 
     def perform_create(self, serializer):
         submission = serializer.validated_data['submission']

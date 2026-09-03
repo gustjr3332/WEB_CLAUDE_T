@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
+from rest_framework.validators import UniqueTogetherValidator
 
 from .models import Contest, Judge, Participant, Score, Submission, Team
 
@@ -49,13 +50,18 @@ class TeamSerializer(serializers.ModelSerializer):
 
 
 class ContestSerializer(serializers.ModelSerializer):
-    team_count = serializers.IntegerField(source='teams.count', read_only=True)
+    # 목록/상세 조회는 ContestViewSet.get_queryset 의 annotate 값을 그대로 쓰므로 대회 수와
+    # 무관하게 쿼리 수가 일정하다. annotate 가 없는 인스턴스(생성/수정 직후)만 직접 계산한다.
+    team_count = serializers.SerializerMethodField()
+    # 요청한 사용자가 이 대회의 심사위원인지. 프론트가 심사위원 목록을 받아 아이디를
+    # 비교하는 대신 서버 판단을 그대로 쓰고, 폴링으로 배정 변경이 자동 반영된다.
+    is_judge = serializers.SerializerMethodField()
 
     class Meta:
         model = Contest
         fields = [
             'slug', 'name', 'description', 'status',
-            'start_at', 'end_at', 'created_at', 'updated_at', 'team_count',
+            'start_at', 'end_at', 'created_at', 'updated_at', 'team_count', 'is_judge',
         ]
         read_only_fields = ['created_at', 'updated_at']
 
@@ -66,20 +72,45 @@ class ContestSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'end_at': '종료 일시는 시작 일시보다 빨라서는 안 됩니다.'})
         return attrs
 
+    def get_team_count(self, obj):
+        count = getattr(obj, 'team_count', None)
+        return count if count is not None else obj.teams.count()
+
+    def get_is_judge(self, obj):
+        value = getattr(obj, 'is_judge', None)
+        if value is not None:
+            return value
+        user = getattr(self.context.get('request'), 'user', None)
+        if user is None or not user.is_authenticated:
+            return False
+        return obj.judges.filter(user=user).exists()
+
 
 class JudgeSerializer(serializers.ModelSerializer):
-    username = serializers.CharField(source='user.username', read_only=True)
-    user_username = serializers.CharField(write_only=True, source='user')
+    # 읽기와 쓰기 모두 아이디 문자열 하나(`username`)로 통일한다.
+    username = serializers.SlugRelatedField(
+        source='user',
+        slug_field='username',
+        queryset=User.objects.all(),
+        error_messages={'does_not_exist': '존재하지 않는 사용자입니다.'},
+    )
+    # 이 심사위원이 입력한 점수 수. 0 이 아니면 해제할 수 없다 (JudgeViewSet.perform_destroy).
+    score_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Judge
-        fields = ['id', 'contest', 'username', 'user_username']
+        fields = ['id', 'contest', 'username', 'score_count']
+        validators = [
+            UniqueTogetherValidator(
+                queryset=Judge.objects.all(),
+                fields=['contest', 'username'],
+                message='이미 이 대회의 심사위원으로 배정된 사용자입니다.',
+            ),
+        ]
 
-    def validate_user_username(self, value):
-        try:
-            return User.objects.get(username=value)
-        except User.DoesNotExist:
-            raise serializers.ValidationError('존재하지 않는 사용자입니다.')
+    def get_score_count(self, obj):
+        count = getattr(obj, 'score_count', None)
+        return count if count is not None else obj.scores.count()
 
 
 class MeSerializer(serializers.ModelSerializer):
@@ -89,6 +120,10 @@ class MeSerializer(serializers.ModelSerializer):
 
 
 class ScoreSerializer(serializers.ModelSerializer):
+    # perform_create 가 submission.team.contest 까지 타고 올라가므로 한 번에 조인해 둔다.
+    submission = serializers.PrimaryKeyRelatedField(
+        queryset=Submission.objects.select_related('team__contest')
+    )
     judge_username = serializers.CharField(source='judge.user.username', read_only=True)
 
     class Meta:

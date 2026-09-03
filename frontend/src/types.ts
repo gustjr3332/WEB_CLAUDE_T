@@ -10,6 +10,8 @@ export interface Contest {
   created_at: string;
   updated_at: string;
   team_count: number;
+  /** 요청한 사용자가 이 대회의 심사위원인지 (서버 판단, 폴링으로 갱신). */
+  is_judge: boolean;
 }
 
 export interface ContestInput {
@@ -51,6 +53,8 @@ export interface Judge {
   id: number;
   contest: string;
   username: string;
+  /** 이 심사위원이 입력한 점수 수. 0 보다 크면 해제할 수 없다. */
+  score_count: number;
 }
 
 export interface Me {
