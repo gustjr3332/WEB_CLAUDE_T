@@ -42,8 +42,12 @@ export type ScoreRound = 'preliminary' | 'final';
 export interface Judge {
   id: number;
   contest: string;
-  user: number;
   username: string;
+}
+
+export interface Me {
+  username: string;
+  is_staff: boolean;
 }
 
 export interface Score {

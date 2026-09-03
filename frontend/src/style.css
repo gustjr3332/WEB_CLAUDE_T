@@ -467,6 +467,40 @@ body {
   font-family: var(--font-ui);
 }
 
+/* ---------- judge assignment (organizer only) ---------- */
+
+.judge-assign {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.judge-assign-list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+}
+
+.judge-assign-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+
+.judge-assign-row button {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-family: var(--font-ui);
+  color: var(--danger);
+}
+
 /* ---------- footer ---------- */
 
 .site-footer {

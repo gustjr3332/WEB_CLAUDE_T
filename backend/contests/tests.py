@@ -83,6 +83,45 @@ class ContestApiTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
 
 
+class MeAndJudgeAssignmentTests(APITestCase):
+    def setUp(self):
+        self.organizer = User.objects.create_user('organizer', password='pw12345678', is_staff=True)
+        self.participant = User.objects.create_user('participant', password='pw12345678')
+        self.contest = make_contest()
+
+    def test_me_reflects_organizer_status(self):
+        self.client.force_authenticate(self.organizer)
+        res = self.client.get('/api/auth/me/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data, {'username': 'organizer', 'is_staff': True})
+
+    def test_me_requires_authentication(self):
+        res = self.client.get('/api/auth/me/')
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_organizer_can_assign_judge_by_username(self):
+        self.client.force_authenticate(self.organizer)
+        res = self.client.post('/api/judges/', {
+            'contest': self.contest.slug, 'user_username': 'participant',
+        })
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(Judge.objects.filter(contest=self.contest, user=self.participant).exists())
+
+    def test_assigning_unknown_username_fails(self):
+        self.client.force_authenticate(self.organizer)
+        res = self.client.post('/api/judges/', {
+            'contest': self.contest.slug, 'user_username': 'nobody',
+        })
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_non_organizer_cannot_assign_judge(self):
+        self.client.force_authenticate(self.participant)
+        res = self.client.post('/api/judges/', {
+            'contest': self.contest.slug, 'user_username': 'participant',
+        })
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+
 class ScoreboardTests(APITestCase):
     def setUp(self):
         self.contest = make_contest()

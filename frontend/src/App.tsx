@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchContests, getStoredUsername, logout } from './api';
+import { fetchContests, fetchMe, getStoredUsername, logout } from './api';
 import { AuthPanel } from './AuthPanel';
 import { ContestDetail } from './ContestDetail';
 import { STATUS_LABEL } from './labels';
@@ -10,6 +10,7 @@ export default function App() {
   const [selected, setSelected] = useState<Contest | null>(null);
   const [status, setStatus] = useState('불러오는 중…');
   const [username, setUsername] = useState<string | null>(getStoredUsername());
+  const [isOrganizer, setIsOrganizer] = useState(false);
 
   useEffect(() => {
     fetchContests()
@@ -19,6 +20,24 @@ export default function App() {
       })
       .catch((err: Error) => setStatus(err.message));
   }, []);
+
+  useEffect(() => {
+    if (!username) {
+      setIsOrganizer(false);
+      return;
+    }
+    let cancelled = false;
+    fetchMe()
+      .then((me) => {
+        if (!cancelled) setIsOrganizer(me.is_staff);
+      })
+      .catch(() => {
+        if (!cancelled) setIsOrganizer(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [username]);
 
   function handleLogout() {
     logout();
@@ -46,7 +65,12 @@ export default function App() {
         {!username && <AuthPanel onLoggedIn={setUsername} />}
 
         {selected ? (
-          <ContestDetail contest={selected} username={username} onBack={() => setSelected(null)} />
+          <ContestDetail
+            contest={selected}
+            username={username}
+            isOrganizer={isOrganizer}
+            onBack={() => setSelected(null)}
+          />
         ) : (
           <section className="contest-list">
             {contests.map((contest) => (

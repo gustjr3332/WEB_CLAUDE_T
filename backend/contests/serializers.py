@@ -62,10 +62,23 @@ class ContestSerializer(serializers.ModelSerializer):
 
 class JudgeSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
+    user_username = serializers.CharField(write_only=True, source='user')
 
     class Meta:
         model = Judge
-        fields = ['id', 'contest', 'user', 'username']
+        fields = ['id', 'contest', 'username', 'user_username']
+
+    def validate_user_username(self, value):
+        try:
+            return User.objects.get(username=value)
+        except User.DoesNotExist:
+            raise serializers.ValidationError('존재하지 않는 사용자입니다.')
+
+
+class MeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['username', 'is_staff']
 
 
 class ScoreSerializer(serializers.ModelSerializer):

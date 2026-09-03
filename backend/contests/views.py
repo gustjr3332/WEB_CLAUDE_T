@@ -9,6 +9,7 @@ from .permissions import IsAssignedJudge, IsOrganizerOrReadOnly, IsTeamMemberOrR
 from .serializers import (
     ContestSerializer,
     JudgeSerializer,
+    MeSerializer,
     ParticipantSerializer,
     RegisterSerializer,
     ScoreboardEntrySerializer,
@@ -21,6 +22,14 @@ from .serializers import (
 class RegisterView(generics.CreateAPIView):
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
+
+
+class MeView(generics.RetrieveAPIView):
+    serializer_class = MeSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        return self.request.user
 
 
 class ContestViewSet(viewsets.ModelViewSet):

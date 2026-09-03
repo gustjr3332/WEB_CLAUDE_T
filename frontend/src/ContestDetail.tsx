@@ -1,41 +1,43 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
+  addJudge,
   createTeam,
   fetchJudges,
   fetchMyScores,
   fetchScoreboard,
   fetchTeams,
   joinTeam,
+  removeJudge,
   upsertScore,
   upsertSubmission,
 } from './api';
 import { ROUND_LABEL, ROUNDS, STATUS_LABEL } from './labels';
-import type { Contest, Score, ScoreboardEntry, ScoreRound, Team } from './types';
+import type { Contest, Judge, Score, ScoreboardEntry, ScoreRound, Team } from './types';
 
 interface ContestDetailProps {
   contest: Contest;
   username: string | null;
+  isOrganizer: boolean;
   onBack: () => void;
 }
 
-export function ContestDetail({ contest, username, onBack }: ContestDetailProps) {
+export function ContestDetail({ contest, username, isOrganizer, onBack }: ContestDetailProps) {
   const [teams, setTeams] = useState<Team[]>([]);
   const [scoreboard, setScoreboard] = useState<ScoreboardEntry[]>([]);
   const [newTeamName, setNewTeamName] = useState('');
   const [status, setStatus] = useState('');
-  const [isJudge, setIsJudge] = useState(false);
+  const [judges, setJudges] = useState<Judge[]>([]);
   const [myScores, setMyScores] = useState<Score[]>([]);
+  const isJudge = judges.some((j) => j.username === username);
 
   const load = useCallback(() => {
     fetchTeams(contest.slug).then(setTeams).catch((err: Error) => setStatus(err.message));
     fetchScoreboard(contest.slug).then(setScoreboard).catch(() => undefined);
     if (username) {
-      fetchJudges(contest.slug)
-        .then((judges) => setIsJudge(judges.some((j) => j.username === username)))
-        .catch(() => setIsJudge(false));
+      fetchJudges(contest.slug).then(setJudges).catch(() => setJudges([]));
       fetchMyScores().then(setMyScores).catch(() => undefined);
     } else {
-      setIsJudge(false);
+      setJudges([]);
     }
   }, [contest.slug, username]);
 
@@ -121,7 +123,80 @@ export function ContestDetail({ contest, username, onBack }: ContestDetailProps)
           <JudgePanel teams={teams} myScores={myScores} onScored={load} />
         </div>
       )}
+
+      {isOrganizer && (
+        <div>
+          <h3 className="section-heading">심사위원 배정</h3>
+          <JudgeAssignPanel contestSlug={contest.slug} judges={judges} onChanged={load} />
+        </div>
+      )}
     </section>
+  );
+}
+
+interface JudgeAssignPanelProps {
+  contestSlug: string;
+  judges: Judge[];
+  onChanged: () => void;
+}
+
+function JudgeAssignPanel({ contestSlug, judges, onChanged }: JudgeAssignPanelProps) {
+  const [username, setUsername] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function handleAdd(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      await addJudge(contestSlug, username);
+      setUsername('');
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '심사위원 배정에 실패했습니다');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRemove(judgeId: number) {
+    setError('');
+    try {
+      await removeJudge(judgeId);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '심사위원 해제에 실패했습니다');
+    }
+  }
+
+  return (
+    <div className="judge-assign">
+      <form className="team-form" onSubmit={handleAdd}>
+        <input
+          type="text"
+          placeholder="심사위원으로 등록할 아이디"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          required
+        />
+        <button type="submit" disabled={busy}>
+          배정하기
+        </button>
+      </form>
+      {error && <p className="form-error">{error}</p>}
+      <div className="judge-assign-list">
+        {judges.map((judge) => (
+          <div key={judge.id} className="judge-assign-row">
+            <span>{judge.username}</span>
+            <button type="button" onClick={() => handleRemove(judge.id)}>
+              해제
+            </button>
+          </div>
+        ))}
+        {judges.length === 0 && <p className="empty-hint">배정된 심사위원이 없습니다.</p>}
+      </div>
+    </div>
   );
 }
 
