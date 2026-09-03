@@ -138,25 +138,45 @@ Postman에 가져오면 회원가입/로그인(JWT), 대회 CRUD, 팀 생성/참
 심사 점수 입력, 스코어보드 조회 요청을 바로 실행해볼 수 있습니다.
 로컬 대상: `base_url = http://127.0.0.1:8000/api`.
 
-### 가입 계정 확인
+### 가입 계정 / 운영자(superuser) 확인
 
-가입된 사용자 목록은 별도 API가 없고 Django admin(`/admin/`)에서 확인합니다. superuser가
-없으면 먼저 만들어야 합니다:
+가입된 사용자 목록과 운영자 여부(`is_staff`, `is_superuser`)는 별도 API가 없고 아래 세 가지
+방법으로 확인합니다.
 
-```bash
-python manage.py createsuperuser
+**1. Django admin** — https://web-claude-t.onrender.com/admin/ → *인증 및 권한 › 사용자*.
+superuser 계정 하나가 있어야 로그인할 수 있고, 여기서 다른 계정에 `is_staff`를 켜면 그 계정이
+바로 운영자(대회 생성·상태 전이·심사위원 배정 가능)가 됩니다. 앱에서 로그인한 뒤
+`GET /api/auth/me/`로 자기 자신의 `is_staff`만 확인할 수도 있습니다.
+
+**2. 로컬 PC에서 Render DB에 직접 연결** — Render Shell(유료 플랜 전용) 없이 됩니다.
+Render 대시보드 → PostgreSQL 서비스 → *Info* → **External Database URL**을 복사해서, 로컬
+`backend/` 디렉터리에서 그 값을 `DATABASE_URL`로 넘겨 manage.py 를 실행하면 프로덕션 DB를
+대상으로 동작합니다:
+
+```powershell
+# PowerShell (backend/ 에서, .venv 활성화 상태)
+$env:DATABASE_URL = "postgres://...external url..."
+python manage.py shell -c "from django.contrib.auth.models import User; [print(u.id, u.username, u.email, u.is_staff, u.is_superuser) for u in User.objects.all()]"
+python manage.py createsuperuser        # superuser가 하나도 없을 때
 ```
 
-Render(프로덕션)는 대시보드의 **Shell** 탭에서 같은 명령을 실행하면 됩니다. 계정 목록만
-빠르게 볼 때는 admin 대신 shell 한 줄로도 확인 가능합니다:
-
 ```bash
-python manage.py shell -c "
+# bash
+DATABASE_URL="postgres://...external url..." python manage.py shell -c "
 from django.contrib.auth.models import User
 for u in User.objects.all():
-    print(u.id, u.username, u.email, u.date_joined)
+    print(u.id, u.username, u.email, 'staff' if u.is_staff else '', 'superuser' if u.is_superuser else '')
 "
 ```
+
+이미 있는 계정을 운영자로 올릴 때는
+`User.objects.filter(username='아이디').update(is_staff=True)` 한 줄이면 됩니다.
+External URL은 외부 접속용이라 Render 내부 URL과 다르고, 무료 DB는 만료 시 URL이 바뀝니다.
+
+**3. DB 클라이언트** — 같은 External Database URL을 DBeaver / TablePlus / psql에 넣고
+`SELECT id, username, email, is_staff, is_superuser FROM auth_user;`.
+
+로컬 개발 DB에서는 그냥 `python manage.py createsuperuser` 후 http://127.0.0.1:8000/admin/ 입니다.
 
 ## 배포
 
@@ -165,7 +185,8 @@ for u in User.objects.all():
 - URL: https://web-claude-t.onrender.com
 - Root Directory: `backend`
 - Build: `pip install -r requirements.txt`
-- Start: `python manage.py migrate --noinput && gunicorn config.wsgi`
+- Start: `python manage.py migrate --noinput && python manage.py collectstatic --noinput && gunicorn config.wsgi`
+  (대시보드 **Start Command** 필드가 `Procfile`보다 우선이므로 둘을 같은 값으로 유지)
 - DB: Render 관리형 PostgreSQL, `DATABASE_URL`로 연결
 - 환경변수: `DJANGO_SECRET_KEY`, `DJANGO_DEBUG=False`,
   `DJANGO_ALLOWED_HOSTS=web-claude-t.onrender.com`, `DATABASE_URL`,
@@ -234,6 +255,17 @@ for u in User.objects.all():
 입력되어 있어 `Procfile` 내용을 완전히 무시하고 있었음 (대시보드 Start Command가
 Procfile보다 우선 적용됨).
 해결: 대시보드 Start Command 값을 위 한 줄로 직접 교체.
+
+### Render 프로덕션에서 `/admin/`이 500 (2026-09-03, 해결됨)
+
+증상: API는 정상인데 https://web-claude-t.onrender.com/admin/login/ 만 500.
+원인: `settings.py`가 whitenoise의 `CompressedManifestStaticFilesStorage`를 쓰는데 배포
+과정에 `collectstatic`이 없어 `staticfiles/` 매니페스트가 존재하지 않았음. `DEBUG=False`에서
+admin 템플릿의 `{% static %}`가 매니페스트를 찾다 `ValueError: Missing staticfiles manifest
+entry`로 터짐(API 응답은 static을 쓰지 않아 멀쩡했음). 로컬에서 `DJANGO_DEBUG=False`로
+재현 → `collectstatic` 후 200 확인.
+해결: `Procfile`과 Render **Start Command**에 `python manage.py collectstatic --noinput`을
+`migrate` 다음에 추가.
 
 ### Render 디버깅 팁
 
