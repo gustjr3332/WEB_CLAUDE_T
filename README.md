@@ -1,293 +1,139 @@
-# WEB_CLAUDE_T — 해커톤/공모전 운영 플랫폼
+# 해커톤/공모전 운영 플랫폼
 
-- 백엔드: https://web-claude-t.onrender.com/api/contests/
-- 프론트엔드: https://hackman-virid.vercel.app/
+대회를 만들고, 팀을 꾸리고, 심사위원이 채점하면 순위가 실시간으로 갱신되는 웹 서비스입니다.
+학과·동아리 규모의 해커톤과 공모전을 별도 설치 없이 브라우저에서 바로 운영할 수 있습니다.
 
-Django REST Framework + React(Vite) 기반 해커톤/공모전 운영 플랫폼입니다. 대회 생성 →
-팀 구성 → 제출물 등록 → 심사위원 채점 → 실시간 스코어보드로 이어지는 흐름을 지원합니다.
-우아한형제들 해커톤 운영 사례(예선 15분·결선 10분 실시간 집계)를 참고 모델로 삼았습니다.
-향후 Flutter로 동일 Django REST API를 재사용하는 웹+앱 하이브리드 확장을 계획하고 있습니다.
+- 서비스 주소: https://hackman-virid.vercel.app/
+- 개발·배포 문서: [DEVELOPMENT.md](DEVELOPMENT.md) · 화면 디자인 기준: [DESIGN.md](DESIGN.md)
 
-## 도메인 모델
+## 누구를 위한 서비스인가
 
-`Contest` — `Team` — `Participant` / `Submission` — `Judge` — `Score`
+| 역할 | 할 수 있는 일 |
+|---|---|
+| **운영자** | 대회 생성, 대회 단계 전환(모집중 → 진행중 → 심사중 → 종료), 심사위원 배정 |
+| **참가자** | 팀 생성·참가, 제출물(제목·설명·링크) 등록과 수정, 스코어보드 확인 |
+| **심사위원** | 배정된 대회의 제출물에 예선/결선 점수와 코멘트 입력, 수정 |
+| **관람자** | 로그인 없이 대회 목록과 실시간 스코어보드 열람 |
 
-- 대회 상태 전이: 모집중 → 진행중 → 심사중 → 종료 (운영자가 대회 상세 화면에서 전환)
-- 역할: 운영자(staff) / 참가자 / 심사위원
-- 채점: 팀의 제출물 1건에 대해 심사위원별로 예선/결선 라운드 점수·코멘트 입력.
-  같은 심사위원이 같은 라운드에 다시 저장하면 기존 점수를 덮어쓴다(upsert).
-- 스코어보드: 라운드별 평균 점수·심사 수·**순위**를 집계. 동점은 같은 순위를 공유하고 다음
-  순위는 건너뛴다(1, 1, 3). 점수가 없는 팀은 순위 없이 맨 아래에 표시.
+회원가입은 누구나 할 수 있고, 가입한 계정은 기본적으로 참가자입니다. 운영자가 배정하면
+심사위원이 되고, 운영자 권한은 관리자가 부여합니다.
 
-대회 상태에 따라 서버가 허용하는 동작 (프론트는 같은 규칙으로 폼을 숨기고, 강제는 서버가 함):
+## 대회는 이렇게 진행됩니다
 
-| 동작 | 모집중 | 진행중 | 심사중 | 종료 |
+```
+모집중 ──▶ 진행중 ──▶ 심사중 ──▶ 종료
+팀 구성      제출물 등록   심사위원 채점   최종 결과
+```
+
+운영자가 대회 상세 화면에서 단계 버튼을 누르면 모든 참가자·심사위원 화면이 몇 초 안에
+따라갑니다. 단계마다 할 수 있는 일이 정해져 있어 실수로 심사 중에 제출물이 바뀌거나, 종료된
+대회에 점수가 들어가는 일이 없습니다.
+
+| | 모집중 | 진행중 | 심사중 | 종료 |
 |---|:-:|:-:|:-:|:-:|
-| 팀 생성 / 참가 | O | O | – | – |
+| 팀 만들기 / 참가하기 | O | O | – | – |
 | 제출물 등록 / 수정 | O | O | – | – |
 | 심사위원 채점 | – | – | O | – |
-| 스코어보드 조회 | O | O | O | O |
+| 스코어보드 보기 | O | O | O | O |
 
-허용되지 않는 상태에서 요청하면 `403` + `"… (현재 상태: 심사중)"` 형태의 메시지를 돌려준다.
-규칙 정의: `backend/contests/views.py`의 `*_STATUSES`, `frontend/src/rules.ts`.
+허용되지 않는 단계에서 버튼을 누르면 "현재 상태: 심사중" 같은 안내가 뜨고 저장되지 않습니다.
 
-## 저장소 구조
+## 스코어보드
+
+대회 상세 화면의 가장 위, 가장 큰 자리에 있습니다. 대회 운영의 중심이 숫자이기 때문입니다.
+
+- **예선 / 결선** 탭으로 라운드를 나눠 봅니다. 라운드마다 순위가 따로 매겨집니다.
+- **평균 점수**는 그 라운드에 점수를 낸 심사위원들의 평균, **심사 수**는 채점한 심사위원 수입니다.
+- **순위**는 평균 점수 순이며, 동점이면 같은 순위를 공유하고 다음 순위는 건너뜁니다
+  (예: 1위, 1위, 3위). 아직 점수가 없는 팀은 순위 없이 아래에 표시됩니다.
+- 종료되지 않은 대회는 **5초마다 자동 갱신**됩니다. 우측 상단 `LIVE · 5초마다 갱신 · 시각`
+  표시로 마지막 갱신 시각을 알 수 있습니다. 브라우저 탭을 다른 곳에 두면 갱신을 멈추고, 다시
+  돌아오면 즉시 최신 상태를 불러옵니다. 종료된 대회는 `최종 결과`로 표시됩니다.
+
+## 역할별 사용 방법
+
+### 운영자
+
+1. 로그인하면 목록 화면 우측 상단에 **+ 새 대회 만들기**가 보입니다. 대회명, URL 식별자(영문
+   소문자·숫자·하이픈, 만든 뒤 변경 불가), 시작·종료 일시, 설명을 입력합니다.
+2. 대회 상세 화면 상단의 **모집중 → 진행중 → 심사중 → 종료** 버튼으로 단계를 바꿉니다. 현재
+   단계는 색으로 강조되고, 아래에 그 단계에서 가능한 일이 한 줄로 안내됩니다.
+3. **심사위원 배정** 영역에 심사위원의 아이디를 입력하면 배정되고, 목록의 **해제**로 뺄 수
+   있습니다. 심사위원은 먼저 이 서비스에 회원가입해 두어야 합니다.
+4. 대회 당일에는 스코어보드 화면을 프로젝터에 띄워 두면 채점이 들어올 때마다 순위가 바뀌는
+   것을 모두가 볼 수 있습니다.
+
+### 참가자
+
+1. **회원가입** 탭에서 아이디와 비밀번호(8자 이상)로 가입하면 바로 로그인됩니다.
+2. 대회를 선택해 **새 팀 이름**을 입력하고 **팀 만들기**를 누르면 팀이 생기고 자동으로
+   참가됩니다. 이미 있는 팀에는 **참가하기**로 합류합니다.
+3. 내 팀 카드에서 제출물 **제목·설명·링크**를 입력하고 **제출하기**를 누릅니다. 진행중 단계까지는
+   몇 번이든 **제출물 수정**이 가능합니다. 심사가 시작되면 잠깁니다.
+4. 스코어보드에서 우리 팀의 평균 점수와 순위를 확인합니다.
+
+### 심사위원
+
+1. 운영자가 배정한 대회에 들어가면 하단에 **심사하기** 영역이 나타납니다.
+2. 팀별로 **예선**과 **결선** 칸에 점수(0~100, 0.5 단위)와 코멘트를 입력하고 저장합니다.
+   제출물 링크는 **링크 열기**로 바로 확인할 수 있습니다.
+3. 저장한 점수는 다시 열어도 그대로 채워져 있고, **점수 수정**으로 언제든 고칠 수 있습니다.
+   저장 시각이 칸 옆에 표시됩니다.
+4. 채점은 대회가 **심사중** 단계일 때만 저장됩니다. 그 밖의 단계에서는 칸이 비활성화되고 이유가
+   안내됩니다.
+
+## 화면 구성
 
 ```
-.
-├── backend/                # 백엔드: Django + DRF + PostgreSQL
-│   ├── config/              # 프로젝트 설정 (settings.py, urls.py, wsgi.py)
-│   ├── contests/             # 대회/팀/제출물/심사 도메인 앱 (models, serializers,
-│   │                           permissions, views, migrations)
-│   ├── postman/               # Postman 컬렉션/환경 (엔드포인트 수동 검증용)
-│   ├── docker-compose.yml       # 로컬 PostgreSQL 컨테이너
-│   ├── Procfile                  # 배포 시작 명령 (Render)
-│   └── requirements.txt
-├── frontend/                # 프론트엔드: React + TypeScript + Vite
-│   └── src/                    # App.tsx, AuthPanel.tsx, ContestForm.tsx, ContestDetail.tsx,
-│                                 api.ts, types.ts, labels.ts, rules.ts, style.css
-└── .devcontainer/            # Python+Node+PostgreSQL 개발 컨테이너 (VS Code Dev Containers)
+대회 목록                          대회 상세
+┌────────────────────────────┐    ┌──────────────────────────────────────┐
+│┃ 2026 교내 해커톤   ● 모집중 │    │ 대회명            ● 심사중              │
+│┃ 09.03 – 09.04  · 4팀       │    │ [모집중]→[진행중]→[심사중]→[종료]  (운영자) │
+├────────────────────────────┤    ├──────────────────────────────────────┤
+│┃ 동아리 공모전     ● 심사중  │    │ 스코어보드  [예선|결선]   ● LIVE 20:34:18 │
+└────────────────────────────┘    │  순위  팀      제출물     평균   심사 수 │
+                                  │   1   팀 베타  캠퍼스 내비  8.75    2    │
+                                  │   1   팀 알파  AI 시간표   8.75    2    │
+                                  │   3   팀 감마  회계 봇     6.75    2    │
+                                  ├──────────────────────────────────────┤
+                                  │ 팀 목록 · 제출물                        │
+                                  │ 심사하기            (심사위원에게만)     │
+                                  │ 심사위원 배정        (운영자에게만)      │
+                                  └──────────────────────────────────────┘
 ```
 
-## 기술 스택
+- 목록에서 왼쪽 색 막대와 점은 대회 상태를 뜻합니다. 초록은 모집중·진행중, 주황은 심사중,
+  회색은 종료입니다.
+- 점수·날짜·순위 같은 숫자는 고정폭 글꼴로 오른쪽 정렬되어 전광판처럼 읽힙니다.
+- 화면은 PC와 모바일 브라우저 모두에서 동작합니다.
 
-| 영역 | 선택 | 비고 |
-|---|---|---|
-| 백엔드 | Python / Django 6.1 + Django REST Framework | REST API 서버, 프론트와 완전히 분리 |
-| 프론트엔드 | TypeScript / React 18 (Vite) | SPA, 백엔드 API를 fetch로 호출 |
-| 인증 | JWT (`djangorestframework-simplejwt`) | 웹+앱(Flutter) 공용 전제 |
-| DB | PostgreSQL 16 | 로컬 개발은 Docker, 배포는 Render 관리형 DB |
-| API 테스트 | Postman | `backend/postman/`에 컬렉션·환경 파일로 관리 |
-| 배포(백엔드) | Render (Web Service + 관리형 PostgreSQL) | gunicorn + whitenoise |
-| 배포(프론트) | Vercel | Root Directory: `frontend` |
-| 향후 하이브리드 앱 | Flutter | 같은 Django REST API 재사용 예정 |
+## 자주 묻는 질문
 
-## 로컬 개발 환경
+**운영자 권한은 어떻게 받나요?**
+관리자가 관리 화면에서 해당 계정에 스태프 권한을 켜 주면 됩니다. 로그인하면 이름 옆에
+`운영자` 표시가 붙고 대회 생성·단계 전환·심사위원 배정 메뉴가 나타납니다.
 
-### 백엔드
+**제출물 수정 버튼이 사라졌어요.**
+대회가 심사중 또는 종료 단계입니다. 제출물은 모집중·진행중 단계에서만 바꿀 수 있습니다.
 
-```bash
-cd backend
-docker compose up -d          # PostgreSQL 컨테이너 기동 (localhost:5432)
-python -m venv .venv && .venv/Scripts/activate   # (Windows) 최초 1회
-pip install -r requirements.txt
-cp .env.example .env          # 필요 시 값 수정
-python manage.py migrate
-python manage.py runserver    # http://127.0.0.1:8000
-```
+**점수 저장이 안 돼요.**
+대회가 심사중 단계인지 확인하세요. 심사위원으로 배정되지 않은 대회에서는 심사하기 영역 자체가
+보이지 않습니다.
 
-`.env`가 없으면 Django가 기본값(`webclaude`/`webclaude`)으로 로컬 Postgres에 접속합니다.
-`DATABASE_URL` 환경변수가 설정되어 있으면 `POSTGRES_*` 값 대신 그걸 우선 사용합니다
-(Render 등 PaaS 배포용).
+**로그인이 풀렸다는 안내가 떠요.**
+로그인 유지 기간이 지났습니다. 다시 로그인하면 이전 작업 내용은 모두 남아 있습니다.
+평소에는 백그라운드에서 자동으로 연장되어 대회 중에 끊길 일은 거의 없습니다.
 
-Docker를 띄우지 않고 빠르게 돌려볼 때는 SQLite를 지정하면 됩니다:
+**첫 접속이 느려요.**
+서버가 한동안 사용되지 않으면 잠들었다가 첫 요청에 깨어나느라 수십 초가 걸릴 수 있습니다.
+한 번 깨어나면 이후 응답은 빠릅니다. 대회 당일에는 참가자 가입과 팀 구성을 미리 끝내 두는 것을
+권합니다.
 
-```powershell
-# PowerShell
-$env:DATABASE_URL = "sqlite:///$PWD/dev.sqlite3"; python manage.py migrate; python manage.py runserver
-```
+**비밀번호를 잊었어요.**
+현재 셀프 재설정 기능은 없습니다. 운영자에게 요청하면 관리 화면에서 새 비밀번호를 설정해 줍니다.
 
-```bash
-# bash
-DATABASE_URL="sqlite:///$(pwd)/dev.sqlite3" python manage.py migrate && DATABASE_URL="sqlite:///$(pwd)/dev.sqlite3" python manage.py runserver
-```
+## 만든 것들
 
-### 백엔드 테스트
-
-`backend/contests/tests.py`에 API 테스트 37건(인증·토큰 갱신, 대회 CRUD·상태 전이, 상태별
-동작 제한, 팀/제출물 권한, 심사위원 배정, 스코어보드 순위 집계)이 있습니다. Postgres가 없어도
-SQLite로 실행됩니다:
-
-```powershell
-# PowerShell
-$env:DATABASE_URL = "sqlite:///$PWD/test.sqlite3"; python manage.py test
-```
-
-```bash
-# bash
-DATABASE_URL="sqlite:///$(pwd)/test.sqlite3" python manage.py test
-```
-
-### 프론트엔드
-
-```bash
-cd frontend
-npm install
-cp .env.example .env          # VITE_API_BASE_URL 확인 (기본: http://127.0.0.1:8000/api)
-npm run dev                   # http://localhost:5173
-npm run build                 # tsc 타입 검사 + 프로덕션 번들 (배포 전 확인용)
-```
-
-프론트 동작 메모:
-
-- 로그인 시 access/refresh 토큰을 모두 `localStorage`에 저장하고, API가 `401`을 돌려주면
-  refresh 토큰으로 한 번 재발급한 뒤 원 요청을 재시도합니다(동시 요청은 재발급 1회로 합침).
-  재발급도 실패하면 로그아웃 처리 후 "로그인이 만료되었습니다" 안내가 뜹니다.
-- 대회 상세 화면은 **5초마다** 팀 목록·스코어보드·대회 상태를 다시 가져옵니다(탭이 백그라운드면
-  건너뛰고, 다시 보이면 즉시 갱신). 운영자가 상태를 바꾸면 참가자·심사위원 화면도 다음 폴링에서
-  폼 잠금/해제가 따라갑니다. 종료된 대회는 30초 주기로만 확인합니다. 상단
-  `LIVE · 5초마다 갱신 · hh:mm:ss` 표시로 마지막 갱신 시각을 확인할 수 있고, 요청이 실패하면
-  `연결 끊김 · 재시도 중`으로 바뀝니다.
-- 운영자(staff) 계정은 목록 화면에서 **새 대회 만들기**, 상세 화면에서 **상태 전이**
-  (모집중 → 진행중 → 심사중 → 종료)와 심사위원 배정을 할 수 있습니다.
-
-### API 엔드포인트 검증
-
-`backend/postman/WebClaude.postman_collection.json` + `WebClaude.postman_environment.json`을
-Postman에 가져오면 회원가입/로그인(JWT), 대회 CRUD, 팀 생성/참가, 제출물 등록/수정,
-심사 점수 입력, 스코어보드 조회 요청을 바로 실행해볼 수 있습니다.
-로컬 대상: `base_url = http://127.0.0.1:8000/api`.
-
-### 가입 계정 / 운영자(superuser) 확인
-
-가입된 사용자 목록과 운영자 여부(`is_staff`, `is_superuser`)는 별도 API가 없고 아래 세 가지
-방법으로 확인합니다.
-
-**1. Django admin** — https://web-claude-t.onrender.com/admin/ → *인증 및 권한 › 사용자*.
-superuser 계정 하나가 있어야 로그인할 수 있고, 여기서 다른 계정에 `is_staff`를 켜면 그 계정이
-바로 운영자(대회 생성·상태 전이·심사위원 배정 가능)가 됩니다. 앱에서 로그인한 뒤
-`GET /api/auth/me/`로 자기 자신의 `is_staff`만 확인할 수도 있습니다.
-
-**2. 로컬 PC에서 Render DB에 직접 연결** — Render Shell(유료 플랜 전용) 없이 됩니다.
-Render 대시보드 → PostgreSQL 서비스 → *Info* → **External Database URL**을 복사해서, 로컬
-`backend/` 디렉터리에서 그 값을 `DATABASE_URL`로 넘겨 manage.py 를 실행하면 프로덕션 DB를
-대상으로 동작합니다:
-
-```powershell
-# PowerShell (backend/ 에서, .venv 활성화 상태)
-$env:DATABASE_URL = "postgres://...external url..."
-python manage.py shell -c "from django.contrib.auth.models import User; [print(u.id, u.username, u.email, u.is_staff, u.is_superuser) for u in User.objects.all()]"
-python manage.py createsuperuser        # superuser가 하나도 없을 때
-```
-
-```bash
-# bash
-DATABASE_URL="postgres://...external url..." python manage.py shell -c "
-from django.contrib.auth.models import User
-for u in User.objects.all():
-    print(u.id, u.username, u.email, 'staff' if u.is_staff else '', 'superuser' if u.is_superuser else '')
-"
-```
-
-이미 있는 계정을 운영자로 올릴 때는
-`User.objects.filter(username='아이디').update(is_staff=True)` 한 줄이면 됩니다.
-External URL은 외부 접속용이라 Render 내부 URL과 다르고, 무료 DB는 만료 시 URL이 바뀝니다.
-
-**3. DB 클라이언트** — 같은 External Database URL을 DBeaver / TablePlus / psql에 넣고
-`SELECT id, username, email, is_staff, is_superuser FROM auth_user;`.
-
-로컬 개발 DB에서는 그냥 `python manage.py createsuperuser` 후 http://127.0.0.1:8000/admin/ 입니다.
-
-## 배포
-
-### 백엔드 (Render)
-
-- URL: https://web-claude-t.onrender.com
-- Root Directory: `backend`
-- Build: `pip install -r requirements.txt`
-- Start: `python manage.py migrate --noinput && python manage.py collectstatic --noinput && gunicorn config.wsgi`
-  (대시보드 **Start Command** 필드가 `Procfile`보다 우선이므로 둘을 같은 값으로 유지)
-- DB: Render 관리형 PostgreSQL, `DATABASE_URL`로 연결
-- 환경변수: `DJANGO_SECRET_KEY`, `DJANGO_DEBUG=False`,
-  `DJANGO_ALLOWED_HOSTS=web-claude-t.onrender.com`, `DATABASE_URL`,
-  `CORS_ALLOWED_ORIGINS=https://hackman-virid.vercel.app`
-
-### 프론트엔드 (Vercel)
-
-- URL: https://hackman-virid.vercel.app
-- Root Directory: `frontend`
-- 환경변수: `VITE_API_BASE_URL=https://web-claude-t.onrender.com/api`
-  (Vite는 빌드 시점에 env를 박아 넣으므로, 값 변경 후 반드시 재배포 필요)
-
-## 로드맵
-
-### 완료
-
-- Django + DRF + PostgreSQL 세팅 (로컬 Docker)
-- 도메인 모델(`Contest`/`Team`/`Participant`/`Submission`/`Judge`/`Score`) + 마이그레이션
-- JWT 인증 + 역할 기반 권한(운영자/참가자/심사위원)
-- 핵심 API: 대회 CRUD, 팀 생성/참가, 제출물 등록/수정, 심사 점수 입력, 스코어보드 집계
-- React 프론트: 로그인/회원가입, 대회 목록·상세, 팀 생성/참가, 제출물 등록, 스코어보드,
-  **심사자 채점 화면**
-- Postman 컬렉션 (회원가입~스코어보드 전 구간)
-- Render 백엔드 배포 / Vercel 프론트엔드 배포
-- 레거시 정적 사이트 + Google Apps Script 백엔드 제거 (2026-09-02)
-- 프론트엔드 리디자인 — `DESIGN.md` 기준 헤어라인 리스트 + 히어로 스코어보드 (2026-09-03)
-- **심사위원 배정 UI** — 대회 상세 화면에서 운영자(staff)가 아이디로 심사위원을 배정/해제
-  (`GET /api/auth/me/`로 운영자 여부 확인, `POST/DELETE /api/judges/`) (2026-09-03)
-- **대회 생성 / 상태 전이 UI** — 운영자가 목록 화면에서 대회를 만들고(slug 자동 제안,
-  시작·종료 검증), 상세 화면에서 모집중 → 진행중 → 심사중 → 종료를 전환 (2026-09-03)
-- **대회 상태 기반 동작 제한** — 팀 생성/참가·제출물 수정은 모집중/진행중에만, 채점은 심사중에만.
-  서버가 `403`으로 강제하고 프론트는 같은 규칙으로 폼을 잠금 (2026-09-03)
-- **스코어보드 실시간화(REST 폴링)** — 5초 주기 폴링 + LIVE 인디케이터, 예선/결선 라운드 탭,
-  순위 컬럼(동점 공동 순위), 대회 상태 변경도 폴링으로 전파, 종료된 대회는 30초 주기 (2026-09-03)
-- **JWT 액세스 토큰 자동 갱신** — `401` 시 refresh 토큰으로 재발급 후 재시도, 실패 시 세션
-  만료 안내 (2026-09-03)
-- 보안/안정성 수정 — 타 팀에 제출물 생성 가능했던 구멍 차단, 같은 라운드 중복 채점 시 500 →
-  upsert, 대회 종료일 < 시작일 검증 (2026-09-03)
-- 백엔드 API 테스트 37건 (SQLite로 Docker 없이 실행 가능) (2026-09-03)
-
-### 남은 작업
-
-- **학과/동아리 공모전 시범 적용** — 소규모 실사용 파일럿 진행, 피드백 반영해 반복 개선.
-  운영자 계정은 `python manage.py createsuperuser`(또는 admin에서 `is_staff` 체크)로 만든다.
-- (선택) 커스텀 도메인 연결
-- (후속 과제) 스코어보드 WebSocket 전환 — 현재 5초 REST 폴링으로 파일럿 규모(수십 팀·수 명의
-  심사위원)는 충분. Render 단일 프로세스에서 Django Channels + Redis를 붙이는 비용 대비 이점이
-  작아 보류. 참가 팀이 수백 단위로 늘거나 폴링 부하가 문제 되면 재검토.
-
----
-
-## 트러블슈팅 / 이슈 기록
-
-과거에 겪은 문제와 해결 과정을 기록용으로 모아둔 섹션입니다.
-
-### Render 배포: `relation "posts_post" does not exist` (500 에러)
-
-원인: `Procfile`에 Heroku 방식인 `release: python manage.py migrate`를 썼는데, Render는
-이 `release` 단계를 지원하지 않아 마이그레이션이 한 번도 실행되지 않음.
-해결: `Procfile`을 `web: python manage.py migrate --noinput && gunicorn config.wsgi`
-한 줄로 합쳐서, 매 배포/재시작 시 마이그레이션이 먼저 실행되도록 수정.
-
-### Render 배포: Procfile을 고쳤는데도 그대로 500
-
-원인: Render 대시보드의 **Start Command** 필드에 `gunicorn config.wsgi`가 직접
-입력되어 있어 `Procfile` 내용을 완전히 무시하고 있었음 (대시보드 Start Command가
-Procfile보다 우선 적용됨).
-해결: 대시보드 Start Command 값을 위 한 줄로 직접 교체.
-
-### Render 프로덕션에서 `/admin/`이 500 (2026-09-03, 해결됨)
-
-증상: API는 정상인데 https://web-claude-t.onrender.com/admin/login/ 만 500.
-원인: `settings.py`가 whitenoise의 `CompressedManifestStaticFilesStorage`를 쓰는데 배포
-과정에 `collectstatic`이 없어 `staticfiles/` 매니페스트가 존재하지 않았음. `DEBUG=False`에서
-admin 템플릿의 `{% static %}`가 매니페스트를 찾다 `ValueError: Missing staticfiles manifest
-entry`로 터짐(API 응답은 static을 쓰지 않아 멀쩡했음). 로컬에서 `DJANGO_DEBUG=False`로
-재현 → `collectstatic` 후 200 확인.
-해결: `Procfile`과 Render **Start Command**에 `python manage.py collectstatic --noinput`을
-`migrate` 다음에 추가.
-
-### Render 디버깅 팁
-
-`DJANGO_ALLOWED_HOSTS`가 배포 도메인과 정확히 일치해야 함. 원인 파악이 안 될 때는
-`DJANGO_DEBUG=True`로 잠깐 바꿔 Django 에러 페이지의 traceback을 직접 확인한 뒤 다시
-`False`로 되돌리는 방식이 가장 빠름 (Render 접근 로그만으로는 500 원인이 안 보임).
-
-### Windows 호스트에서 `npm run dev`가 `'vite' is not recognized`로 실패
-
-원인: `node_modules`를 devcontainer(Linux)에서 설치한 채로 Windows npm으로 실행하면
-`.bin`의 심볼릭 링크가 Windows용 실행 파일이 아님.
-해결: Windows에서 직접 작업할 때는 `node_modules`를 지우고 Windows npm으로 다시
-`npm install`.
-
-### Vercel 프로덕션에서 모든 API 호출 404 (2026-09-02, 해결됨)
-
-증상: 회원가입/로그인 등 백엔드 호출이 전부 "요청에 실패했습니다 (404)".
-원인: Vercel의 `VITE_API_BASE_URL` 환경변수가 `https://web-claude-t.onrender.com`으로
-설정되어 있었음(끝에 `/api` 누락). `frontend/src/api.ts`가 `${API_BASE_URL}${path}`
-형태로 요청을 만들어 실제로는 `/auth/register/`로 나갔는데, Django에는 `/api/auth/register/`만
-존재해 404. 배포된 JS 번들(`assets/index-*.js`)에서 baked-in 값을 직접 확인해 원인을
-특정함.
-해결: `VITE_API_BASE_URL`을 `https://web-claude-t.onrender.com/api`로 수정 후 재배포.
-프로덕션에서 회원가입→자동 로그인까지 재검증 완료.
-
+Django REST Framework 백엔드와 React(Vite) 프론트엔드로 이루어져 있으며, 웹과 앱(Flutter 예정)이
+같은 API를 쓰도록 설계했습니다. 기술 스택, 로컬 실행, 테스트, 배포, 트러블슈팅 기록은
+[DEVELOPMENT.md](DEVELOPMENT.md)에, 화면 디자인 원칙은 [DESIGN.md](DESIGN.md)에 있습니다.
