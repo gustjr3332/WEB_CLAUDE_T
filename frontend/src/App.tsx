@@ -2,14 +2,8 @@ import { useEffect, useState } from 'react';
 import { fetchContests, getStoredUsername, logout } from './api';
 import { AuthPanel } from './AuthPanel';
 import { ContestDetail } from './ContestDetail';
+import { STATUS_LABEL } from './labels';
 import type { Contest } from './types';
-
-const STATUS_LABEL: Record<Contest['status'], string> = {
-  recruiting: '모집중',
-  ongoing: '진행중',
-  judging: '심사중',
-  closed: '종료',
-};
 
 export default function App() {
   const [contests, setContests] = useState<Contest[]>([]);
@@ -58,17 +52,21 @@ export default function App() {
             {contests.map((contest) => (
               <article
                 key={contest.slug}
-                className="contest-card"
+                className={`contest-card status-${contest.status}`}
                 onClick={() => setSelected(contest)}
               >
-                <h2>{contest.name}</h2>
-                <p className={`status-badge status-${contest.status}`}>
+                <div className="contest-card-main">
+                  <h2>{contest.name}</h2>
+                  <p className="contest-meta">
+                    <span>
+                      {contest.start_at.slice(0, 10)} – {contest.end_at.slice(0, 10)}
+                    </span>
+                    <span>{contest.team_count}팀</span>
+                  </p>
+                </div>
+                <span className={`status-badge status-${contest.status}`}>
                   {STATUS_LABEL[contest.status]}
-                </p>
-                <p className="contest-meta">
-                  {contest.start_at.slice(0, 10)} ~ {contest.end_at.slice(0, 10)} · 참가팀{' '}
-                  {contest.team_count}
-                </p>
+                </span>
               </article>
             ))}
             {contests.length === 0 && !status && (

@@ -9,17 +9,8 @@ import {
   upsertScore,
   upsertSubmission,
 } from './api';
+import { ROUND_LABEL, ROUNDS, STATUS_LABEL } from './labels';
 import type { Contest, Score, ScoreboardEntry, ScoreRound, Team } from './types';
-
-const STATUS_LABEL: Record<Contest['status'], string> = {
-  recruiting: '모집중',
-  ongoing: '진행중',
-  judging: '심사중',
-  closed: '종료',
-};
-
-const ROUND_LABEL: Record<ScoreRound, string> = { preliminary: '예선', final: '결선' };
-const ROUNDS: ScoreRound[] = ['preliminary', 'final'];
 
 interface ContestDetailProps {
   contest: Contest;
@@ -80,9 +71,18 @@ export function ContestDetail({ contest, username, onBack }: ContestDetailProps)
         ← 목록으로
       </button>
 
-      <h2>{contest.name}</h2>
-      <p className={`status-badge status-${contest.status}`}>{STATUS_LABEL[contest.status]}</p>
-      {contest.description && <p className="contest-description">{contest.description}</p>}
+      <div className="detail-header">
+        <h2>{contest.name}</h2>
+        <span className={`status-badge status-${contest.status}`}>
+          {STATUS_LABEL[contest.status]}
+        </span>
+        {contest.description && <p className="contest-description">{contest.description}</p>}
+      </div>
+
+      <div className="scoreboard-hero">
+        <h3 className="section-heading">스코어보드</h3>
+        <ScoreboardTable entries={scoreboard} />
+      </div>
 
       {username && (
         <form className="team-form" onSubmit={handleCreateTeam}>
@@ -99,28 +99,28 @@ export function ContestDetail({ contest, username, onBack }: ContestDetailProps)
 
       {status && <p className="form-error">{status}</p>}
 
-      <div className="team-list">
-        {teams.map((team) => (
-          <TeamCard
-            key={team.id}
-            team={team}
-            username={username}
-            onJoin={() => handleJoin(team.id)}
-            onSubmissionSaved={load}
-          />
-        ))}
-        {teams.length === 0 && <p className="empty-hint">아직 등록된 팀이 없습니다.</p>}
+      <div>
+        <h3 className="section-heading">팀</h3>
+        <div className="team-list">
+          {teams.map((team) => (
+            <TeamCard
+              key={team.id}
+              team={team}
+              username={username}
+              onJoin={() => handleJoin(team.id)}
+              onSubmissionSaved={load}
+            />
+          ))}
+          {teams.length === 0 && <p className="empty-hint">아직 등록된 팀이 없습니다.</p>}
+        </div>
       </div>
 
       {isJudge && (
-        <>
-          <h3>심사하기</h3>
+        <div>
+          <h3 className="section-heading">심사하기</h3>
           <JudgePanel teams={teams} myScores={myScores} onScored={load} />
-        </>
+        </div>
       )}
-
-      <h3>스코어보드</h3>
-      <ScoreboardTable entries={scoreboard} />
     </section>
   );
 }
@@ -300,8 +300,8 @@ function ScoreboardTable({ entries }: { entries: ScoreboardEntry[] }) {
           <th>팀</th>
           <th>제출물</th>
           <th>라운드</th>
-          <th>평균 점수</th>
-          <th>심사 수</th>
+          <th className="num">평균 점수</th>
+          <th className="num">심사 수</th>
         </tr>
       </thead>
       <tbody>
@@ -310,8 +310,10 @@ function ScoreboardTable({ entries }: { entries: ScoreboardEntry[] }) {
             <td>{entry.team_name}</td>
             <td>{entry.submission_title ?? '-'}</td>
             <td>{ROUND_LABEL[entry.round]}</td>
-            <td>{entry.average_score ?? '-'}</td>
-            <td>{entry.vote_count}</td>
+            <td className="score">
+              {entry.average_score == null ? '-' : Number(entry.average_score).toFixed(2)}
+            </td>
+            <td className="num">{entry.vote_count}</td>
           </tr>
         ))}
       </tbody>
