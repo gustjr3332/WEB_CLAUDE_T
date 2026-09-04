@@ -5,7 +5,7 @@
 테스트, 배포, 로드맵, 트러블슈팅 기록을 둔다.
 
 - 백엔드: https://web-claude-t.onrender.com/api/contests/
-- 프론트엔드: https://hackman-virid.vercel.app/
+- 프론트엔드: https://hackman-sju.vercel.app/
 
 Django REST Framework + React(Vite) 기반 해커톤/공모전 운영 플랫폼입니다. 대회 생성 →
 팀 구성 → 제출물 등록 → 심사위원 채점 → 실시간 스코어보드로 이어지는 흐름을 지원합니다.
@@ -197,11 +197,11 @@ External URL은 외부 접속용이라 Render 내부 URL과 다르고, 무료 DB
 - DB: Render 관리형 PostgreSQL, `DATABASE_URL`로 연결
 - 환경변수: `DJANGO_SECRET_KEY`, `DJANGO_DEBUG=False`,
   `DJANGO_ALLOWED_HOSTS=web-claude-t.onrender.com`, `DATABASE_URL`,
-  `CORS_ALLOWED_ORIGINS=https://hackman-virid.vercel.app`
+  `CORS_ALLOWED_ORIGINS=https://hackman-sju.vercel.app`
 
 ### 프론트엔드 (Vercel)
 
-- URL: https://hackman-virid.vercel.app
+- URL: https://hackman-sju.vercel.app
 - Root Directory: `frontend`
 - 환경변수: `VITE_API_BASE_URL=https://web-claude-t.onrender.com/api`
   (Vite는 빌드 시점에 env를 박아 넣으므로, 값 변경 후 반드시 재배포 필요)
@@ -373,7 +373,7 @@ Procfile보다 우선 적용됨).
 증상: API는 정상인데 https://web-claude-t.onrender.com/admin/login/ 만 500.
 원인: `settings.py`가 whitenoise의 `CompressedManifestStaticFilesStorage`를 쓰는데 배포
 과정에 `collectstatic`이 없어 `staticfiles/` 매니페스트가 존재하지 않았음. `DEBUG=False`에서
-admin 템플릿의 `{% static %}`가 매니페스트를 찾다 `ValueError: Missing staticfiles manifest
+admin 템플릿의 `{​% static %}`가 매니페스트를 찾다 `ValueError: Missing staticfiles manifest
 entry`로 터짐(API 응답은 static을 쓰지 않아 멀쩡했음). 로컬에서 `DJANGO_DEBUG=False`로
 재현 → `collectstatic` 후 200 확인.
 해결: `Procfile`과 Render **Start Command**에 `python manage.py collectstatic --noinput`을
