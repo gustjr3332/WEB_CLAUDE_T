@@ -5,7 +5,7 @@
 대회를 만들고, 팀을 꾸리고, 심사위원이 채점하면 순위가 실시간으로 갱신되는 웹 서비스입니다.
 학과·동아리 규모의 해커톤과 공모전을 별도 설치 없이 브라우저에서 바로 운영할 수 있습니다.
 
-- 서비스 주소: https://hackman-virid.vercel.app/
+- 서비스 주소: https://hackman-sju.vercel.app/
 - 개발·배포 문서: [DEVELOPMENT.md](DEVELOPMENT.md) · 화면 디자인 기준: [DESIGN.md](DESIGN.md)
 
 ## 누구를 위한 서비스인가
