@@ -306,7 +306,38 @@ External URL은 외부 접속용이라 Render 내부 URL과 다르고, 무료 DB
     readme/trees/contents 응답 스키마를 실제 공개 저장소로 직접 검증. 브라우저 확장이
     연결되지 않아 화면 클릭 확인은 아직 못 했음 — 로컬에서 `npm run dev` 로 확인 필요.
 
+- **다크 모드 / 라이트 모드** — 헤더 토글로 전환, `localStorage`에 저장해 다음 방문에도
+  유지. 저장된 값이 없으면 시스템 설정(`prefers-color-scheme`)을 따른다. 첫 페인트 전에
+  `index.html`의 인라인 스크립트가 저장된 테마를 적용해 깜빡임(FOUC) 없음. `style.css`의
+  `#fff` 하드코딩 5곳을 `var(--surface)` 토큰으로 바꿔 입력창·스코어보드 hover·데모/코드
+  패널까지 다크에서 깨지지 않게 함. (2026-09-05)
+- **`/code-review` 결과 반영 — 보안/검증 버그 3건** (2026-09-05)
+  - **버그 수정(보안)** — `TeamViewSet`에 객체 단위 권한 검사가 없어 로그인만 하면 아무 팀이나
+    수정·삭제할 수 있던 구멍. 권한을 `IsAuthenticatedOrReadOnly` → `IsTeamMemberOrReadOnly`로
+    교체(그 팀 참가자 또는 운영자만 쓰기 가능).
+  - **버그 수정** — `Score.value`에 범위 검증이 없어 API로 직접 호출하면 음수·100 초과 점수가
+    그대로 저장되던 문제. `MinValueValidator(0)`/`MaxValueValidator(100)` 추가
+    (`migrations/0003_alter_score_value.py`).
+  - 팀 이름 중복 시 DRF 기본 영문 메시지 대신 한국어 메시지(`이미 이 대회에 같은 이름의 팀이
+    있습니다.`)를 주도록 `TeamSerializer`에 `UniqueTogetherValidator` 명시(다른 시리얼라이저와
+    통일).
+
 ### 남은 작업
+
+- **(code-review 발견, 미착수) 대회 상태 전이 검증 없음** — 서버가 `recruiting → ongoing →
+  judging → closed` 순서를 전혀 검사하지 않아, 운영자가 임의 상태로 바로 점프하거나
+  역행시킬 수 있다(`PATCH /api/contests/<slug>/ {"status": "closed"}`를 `recruiting`에서
+  바로 보내도 성공). 고칠 때 지킬 것: **상태 전이는 지금처럼 운영자(staff, admin)만 가능해야
+  하고, 그 외에는 건드릴 수조차 없어야 한다** — `IsOrganizerOrReadOnly`가 이미 이 경계를
+  지키고 있으니 새 검증(`ALLOWED_NEXT_STATUS` 같은 인접 상태 맵)은 그 권한 체크를 대체하지
+  말고 `ContestSerializer.validate()` 안에 추가할 것. 프론트 `StatusControl`
+  (`ContestDetail.tsx`)도 현재 상태에서 진행 불가능한 버튼까지 다 활성화되어 있어 같이
+  손봐야 한다.
+- **(code-review 발견, 미착수) `ScoreViewSet.perform_create` upsert 레이스 컨디션** — 같은
+  심사위원이 탭 두 개로 거의 동시에 같은 라운드를 제출하면 체크(`existing = ...`)와
+  저장(`serializer.save`) 사이의 간극 때문에 `unique_together` 위반 500이 날 수 있다(정확히
+  이 upsert가 막으려던 케이스). `select_for_update()`나 `transaction.atomic()` + 재시도로
+  막아야 함.
 
 - **학과/동아리 공모전 시범 적용** — 소규모 실사용 파일럿 진행, 피드백 반영해 반복 개선.
   운영자 계정은 `python manage.py createsuperuser`(또는 admin에서 `is_staff` 체크)로 만든다.

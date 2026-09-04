@@ -47,6 +47,13 @@ class TeamSerializer(serializers.ModelSerializer):
         model = Team
         fields = ['id', 'contest', 'name', 'created_at', 'participants', 'submission']
         read_only_fields = ['created_at']
+        validators = [
+            UniqueTogetherValidator(
+                queryset=Team.objects.all(),
+                fields=['contest', 'name'],
+                message='이미 이 대회에 같은 이름의 팀이 있습니다.',
+            ),
+        ]
 
 
 class ContestSerializer(serializers.ModelSerializer):

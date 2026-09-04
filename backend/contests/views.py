@@ -118,7 +118,9 @@ class ContestViewSet(viewsets.ModelViewSet):
 
 class TeamViewSet(viewsets.ModelViewSet):
     serializer_class = TeamSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    # 팀 정보 수정/삭제는 그 팀 참가자(또는 운영자)만 — IsTeamMemberOrReadOnly 의
+    # has_object_permission 이 obj 에 .team 이 없으면 obj 자체를 팀으로 보고 검사한다.
+    permission_classes = [IsTeamMemberOrReadOnly]
 
     def get_queryset(self):
         # 참가자의 username 까지 한 번에 가져온다 (팀 목록은 5초마다 폴링되므로 N+1 을 피한다).

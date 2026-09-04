@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 
@@ -85,7 +86,10 @@ class Score(models.Model):
     submission = models.ForeignKey(Submission, related_name='scores', on_delete=models.CASCADE)
     judge = models.ForeignKey(Judge, related_name='scores', on_delete=models.CASCADE)
     round = models.CharField(max_length=20, choices=Round.choices, default=Round.PRELIMINARY)
-    value = models.DecimalField(max_digits=5, decimal_places=2)
+    value = models.DecimalField(
+        max_digits=5, decimal_places=2,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+    )
     comment = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

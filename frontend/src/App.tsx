@@ -12,6 +12,7 @@ import { AuthPanel } from './AuthPanel';
 import { ContestDetail } from './ContestDetail';
 import { ContestForm } from './ContestForm';
 import { STATUS_LABEL } from './labels';
+import { ThemeToggle } from './ThemeToggle';
 import type { Contest } from './types';
 
 export default function App() {
@@ -126,8 +127,13 @@ export default function App() {
   return (
     <>
       <header className="site-header">
-        <h1>해커톤/공모전 플랫폼</h1>
-        <p className="tagline">대회를 만들고, 팀을 꾸리고, 실시간으로 점수를 확인하세요</p>
+        <div className="site-header-top">
+          <div>
+            <h1>해커톤/공모전 플랫폼</h1>
+            <p className="tagline">대회를 만들고, 팀을 꾸리고, 실시간으로 점수를 확인하세요</p>
+          </div>
+          <ThemeToggle />
+        </div>
         <div className="auth-status">
           {username ? (
             <>
