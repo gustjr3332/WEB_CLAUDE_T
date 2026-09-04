@@ -35,6 +35,7 @@ export interface Submission {
   title: string;
   description: string;
   link_url: string;
+  repo_url: string;
   submitted_at: string;
 }
 

@@ -859,3 +859,147 @@ body {
 .submission-summary a {
   color: var(--signal);
 }
+
+/* ---------- submission review panel (demo + GitHub) ---------- */
+
+.review-panel {
+  margin-top: 10px;
+}
+
+.review-toggle {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 0.82rem;
+  color: var(--signal);
+}
+
+.review-toggle:hover {
+  border-color: var(--signal);
+}
+
+.review-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  background: var(--paper-raised);
+}
+
+.review-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.review-panel-head h5 {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.review-panel-head a {
+  font-size: 0.8rem;
+  color: var(--signal);
+  white-space: nowrap;
+}
+
+.demo-frame {
+  width: 100%;
+  height: 420px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.github-panel-body {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) 1fr;
+  gap: 14px;
+}
+
+.github-tree {
+  border-right: 1px solid var(--line);
+  padding-right: 12px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.github-tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.github-tree button {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 5px 6px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--ink);
+  word-break: break-all;
+  border-radius: 2px;
+}
+
+.github-tree button:hover {
+  background: var(--paper);
+}
+
+.github-tree button.active {
+  background: var(--signal);
+  color: var(--paper);
+}
+
+.github-meta {
+  margin: 0 0 8px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.github-content {
+  min-width: 0;
+}
+
+.github-content pre {
+  margin: 0;
+  max-height: 420px;
+  overflow: auto;
+  padding: 10px;
+  background: #fff;
+  border: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 640px) {
+  .github-panel-body {
+    grid-template-columns: 1fr;
+  }
+
+  .github-tree {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    padding-right: 0;
+    padding-bottom: 10px;
+    max-height: 200px;
+  }
+}

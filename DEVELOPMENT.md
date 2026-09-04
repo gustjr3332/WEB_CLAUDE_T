@@ -285,28 +285,29 @@ External URL은 외부 접속용이라 Render 내부 URL과 다르고, 무료 DB
   - 팀 참가(`join`) 응답이 방금 만든 `Participant`를 다시 조회하던 왕복을 없애고 바로 직렬화.
   - 회귀 테스트 10건 추가(쿼리 수 고정 검증 2건 포함, 총 47건), 프론트 `npm run build` 통과.
 
+- **제출물 심사 도구 — 웹 데모 시현 + GitHub 코드 열람** (2026-09-04)
+  범위: 웹 데모만 지원(앱 실행 테스트는 제외). 코드 리뷰는 GitHub 링크 기반 열람까지만
+  (인라인 코멘트·diff 툴은 제외).
+  - `Submission`에 `repo_url`(URLField, blank=True) 필드 추가, 마이그레이션 1개
+    (`contests/migrations/0002_submission_repo_url.py`). 기존 `link_url`은 데모 URL
+    용도로 그대로 유지. 제출물 폼에 "GitHub 저장소 URL (선택)" 입력 추가.
+  - 심사 화면(`JudgePanel`)의 각 팀 카드에 "심사 도구 열기" 토글(`SubmissionReview.tsx`)을
+    추가. 펼치기 전에는 아무 요청도 하지 않는다(GitHub API 요청량 절약).
+  - **웹 데모 패널**: `link_url`을 iframe(`sandbox` 속성으로 팝업 탈출·최상위 탐색 등 제한)
+    으로 띄우고 "새 탭에서 열기"를 항상 함께 노출(X-Frame-Options로 막히는지 JS로 감지할
+    수 없어 fallback이 아니라 기본 노출).
+  - **GitHub 코드 패널**: 백엔드 프록시 없이 프론트(`src/github.ts`)에서 `api.github.com`에
+    직접 GET(공개 API, 비인증 60회/시간). `repo_url`에서 owner/repo 파싱 →
+    `/repos/{owner}/{repo}` 로 기본 브랜치 조회 → `readme` + `git/trees?recursive=1`
+    (블롭 500개 상한) 병렬 조회 → 파일 클릭 시 `/contents/{path}` → base64 디코드 후
+    `<pre>`로 표시(문법 하이라이팅은 범위 밖). GitHub 저장소가 아닌 URL, 404(비공개/삭제),
+    403/429(rate limit) 각각 "GitHub에서 직접 열기" 링크로 대체.
+  - 백엔드 47건 테스트 통과(SQLite), `npm run build` 통과, `api.github.com`
+    readme/trees/contents 응답 스키마를 실제 공개 저장소로 직접 검증. 브라우저 확장이
+    연결되지 않아 화면 클릭 확인은 아직 못 했음 — 로컬에서 `npm run dev` 로 확인 필요.
+
 ### 남은 작업
 
-- **제출물 심사 도구 — 웹 데모 시현 + GitHub 코드 열람** (2026-09-04 설계, 구현 대기)
-  범위: 웹 데모만 지원(앱 실행 테스트는 제외 — 브라우저에서 네이티브 앱을 구동하려면
-  Appetize.io 같은 유료 클라우드 에뮬레이터가 필요해 난이도·비용이 급증하므로 보류).
-  코드 리뷰는 GitHub 링크 기반 열람까지만(인라인 코멘트·diff 툴은 제외).
-  - **데이터 모델**: `Submission`에 `repo_url`(URLField, blank=True) 신규 필드 추가.
-    기존 `link_url`은 데모 URL 용도로 그대로 유지. 마이그레이션 1개.
-  - **웹 데모 시현**: 백엔드 변경 없음. 심사 화면에서 `link_url`을 iframe으로 띄우고
-    "새 탭에서 열기" 버튼을 항상 함께 노출한다(X-Frame-Options로 iframe이 막히는지는
-    JS로 안정적으로 감지할 수 없어, fallback이 아니라 기본 노출로 둔다).
-  - **GitHub 코드 열람**: 백엔드 프록시 없이 프론트에서 `api.github.com`에 직접 GET
-    (공개 API, CORS 허용, 비인증 60회/시간 — 소규모 파일럿 규모엔 충분).
-    - `repo_url`에서 owner/repo 파싱
-    - `/repos/{owner}/{repo}/readme` → README 렌더링
-    - `/repos/{owner}/{repo}/git/trees/{branch}?recursive=1` → 파일 트리
-    - 파일 클릭 시 `/contents/{path}` → base64 디코드 후 `<pre>`로 표시
-      (문법 하이라이팅은 MVP 범위 밖)
-    - private repo·rate limit 초과 시 "GitHub에서 직접 열기" 링크로 대체
-  - **작업량 추정**: 모델·마이그레이션·시리얼라이저 30분 / 제출물 폼에 `repo_url` 입력
-    15분 / 심사 화면 데모 패널 30분 / GitHub 파일트리·README·코드뷰 패널 2~3시간 /
-    테스트 30분 — 총 반나절.
 - **학과/동아리 공모전 시범 적용** — 소규모 실사용 파일럿 진행, 피드백 반영해 반복 개선.
   운영자 계정은 `python manage.py createsuperuser`(또는 admin에서 `is_staff` 체크)로 만든다.
 - (선택) 커스텀 도메인 연결 — 비용·절차는 위 [커스텀 도메인 (예정)](#커스텀-도메인-예정-2026-09-03-조사) 참고.

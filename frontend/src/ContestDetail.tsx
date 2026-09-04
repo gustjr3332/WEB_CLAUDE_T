@@ -15,6 +15,7 @@ import {
 } from './api';
 import { ROUND_LABEL, ROUNDS, STATUS_HINT, STATUS_LABEL, STATUS_ORDER } from './labels';
 import { canFormTeams, canScore, canSubmit, isLive } from './rules';
+import { SubmissionReviewPanel } from './SubmissionReview';
 import type {
   Contest,
   ContestStatus,
@@ -439,17 +440,8 @@ function JudgePanel({ teams, myScores, disabled, onScored }: JudgePanelProps) {
       {judgeable.map((team) => (
         <article key={team.id} className="judge-card">
           <h4>{team.name}</h4>
-          <p className="submission-summary">
-            {team.submission!.title}
-            {team.submission!.link_url && (
-              <>
-                {' · '}
-                <a href={team.submission!.link_url} target="_blank" rel="noreferrer">
-                  링크 열기
-                </a>
-              </>
-            )}
-          </p>
+          <p className="submission-summary">{team.submission!.title}</p>
+          <SubmissionReviewPanel submission={team.submission!} />
           <div className="score-rounds">
             {ROUNDS.map((r) => {
               const existing = myScores.find(
@@ -556,6 +548,7 @@ function TeamCard({ team, username, contestStatus, onJoin, onSubmissionSaved }: 
   const [title, setTitle] = useState(team.submission?.title ?? '');
   const [description, setDescription] = useState(team.submission?.description ?? '');
   const [linkUrl, setLinkUrl] = useState(team.submission?.link_url ?? '');
+  const [repoUrl, setRepoUrl] = useState(team.submission?.repo_url ?? '');
   const [error, setError] = useState('');
 
   async function handleSubmit(e: React.FormEvent) {
@@ -566,6 +559,7 @@ function TeamCard({ team, username, contestStatus, onJoin, onSubmissionSaved }: 
         title,
         description,
         link_url: linkUrl,
+        repo_url: repoUrl,
       });
       onSubmissionSaved();
     } catch (err) {
@@ -580,7 +574,15 @@ function TeamCard({ team, username, contestStatus, onJoin, onSubmissionSaved }: 
         <>
           {' · '}
           <a href={team.submission.link_url} target="_blank" rel="noreferrer">
-            링크
+            데모
+          </a>
+        </>
+      )}
+      {team.submission.repo_url && (
+        <>
+          {' · '}
+          <a href={team.submission.repo_url} target="_blank" rel="noreferrer">
+            GitHub
           </a>
         </>
       )}
@@ -619,9 +621,15 @@ function TeamCard({ team, username, contestStatus, onJoin, onSubmissionSaved }: 
           />
           <input
             type="url"
-            placeholder="링크 (GitHub, 배포 URL 등)"
+            placeholder="데모 URL (배포된 웹 서비스 주소)"
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
+          />
+          <input
+            type="url"
+            placeholder="GitHub 저장소 URL (선택)"
+            value={repoUrl}
+            onChange={(e) => setRepoUrl(e.target.value)}
           />
           {error && <p className="form-error">{error}</p>}
           <button type="submit">{team.submission ? '제출물 수정' : '제출하기'}</button>

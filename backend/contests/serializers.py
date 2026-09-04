@@ -35,7 +35,7 @@ class ParticipantSerializer(serializers.ModelSerializer):
 class SubmissionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Submission
-        fields = ['id', 'team', 'title', 'description', 'link_url', 'submitted_at']
+        fields = ['id', 'team', 'title', 'description', 'link_url', 'repo_url', 'submitted_at']
         read_only_fields = ['submitted_at']
 
 

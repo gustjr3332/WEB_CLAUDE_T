@@ -223,7 +223,7 @@ export function upsertScore(
 export function upsertSubmission(
   teamId: number,
   existingId: number | undefined,
-  data: { title: string; description: string; link_url: string }
+  data: { title: string; description: string; link_url: string; repo_url: string }
 ): Promise<Submission> {
   if (existingId) {
     return request(`/submissions/${existingId}/`, {

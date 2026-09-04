@@ -57,6 +57,7 @@ class Submission(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     link_url = models.URLField(blank=True)
+    repo_url = models.URLField(blank=True)
     submitted_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
