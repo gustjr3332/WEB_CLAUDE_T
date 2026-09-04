@@ -1,4 +1,4 @@
-# 프론트엔드 디자인 기획안 (2026-09-03)
+# HACKMAN 프론트엔드 디자인 기획안 (2026-09-03)
 
 > **반영 완료 (2026-09-03)** — 아래 방향은 `frontend/src/style.css`, `App.tsx`,
 > `ContestDetail.tsx`, `index.html`에 적용되어 있다. 이 문서는 이후 화면을 추가할 때
