@@ -286,6 +286,8 @@ function StatusControl({ contest, onUpdated }: StatusControlProps) {
     }
   }
 
+  const currentIndex = STATUS_ORDER.indexOf(contest.status);
+
   return (
     <div className="status-control-wrap">
       <div className="status-control" role="group" aria-label="대회 상태 전이">
@@ -300,7 +302,9 @@ function StatusControl({ contest, onUpdated }: StatusControlProps) {
               type="button"
               className={`status-${s}${s === contest.status ? ' active' : ''}`}
               aria-pressed={s === contest.status}
-              disabled={busy}
+              // 다음 한 단계로만 전이 가능(서버 ContestSerializer.validate()와 동일한 규칙).
+              // 되돌리거나 건너뛰는 버튼은 아예 눌리지 않게 비활성화한다.
+              disabled={busy || index !== currentIndex + 1}
               onClick={() => changeStatus(s)}
             >
               {STATUS_LABEL[s]}

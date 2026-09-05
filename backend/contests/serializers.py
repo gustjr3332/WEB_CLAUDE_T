@@ -64,6 +64,17 @@ class ContestSerializer(serializers.ModelSerializer):
     # 비교하는 대신 서버 판단을 그대로 쓰고, 폴링으로 배정 변경이 자동 반영된다.
     is_judge = serializers.SerializerMethodField()
 
+    # 상태 전이 순서: recruiting → ongoing → judging → closed 만 허용(제자리도 허용, 역행·건너뛰기
+    # 금지). 이 표는 "누가" 바꿀 수 있는지가 아니라 "무엇으로" 바꿀 수 있는지만 정한다 — 누가
+    # 바꿀 수 있는지는 ContestViewSet.permission_classes = [IsOrganizerOrReadOnly] (운영자만)가
+    # 이미 지키고 있으므로 여기서는 건드리지 않는다.
+    ALLOWED_NEXT_STATUS = {
+        Contest.Status.RECRUITING: {Contest.Status.RECRUITING, Contest.Status.ONGOING},
+        Contest.Status.ONGOING: {Contest.Status.ONGOING, Contest.Status.JUDGING},
+        Contest.Status.JUDGING: {Contest.Status.JUDGING, Contest.Status.CLOSED},
+        Contest.Status.CLOSED: {Contest.Status.CLOSED},
+    }
+
     class Meta:
         model = Contest
         fields = [
@@ -77,6 +88,15 @@ class ContestSerializer(serializers.ModelSerializer):
         end_at = attrs.get('end_at', getattr(self.instance, 'end_at', None))
         if start_at and end_at and end_at < start_at:
             raise serializers.ValidationError({'end_at': '종료 일시는 시작 일시보다 빨라서는 안 됩니다.'})
+
+        new_status = attrs.get('status')
+        if self.instance is not None and new_status is not None:
+            allowed = self.ALLOWED_NEXT_STATUS.get(self.instance.status, set())
+            if new_status not in allowed:
+                current_label = self.instance.get_status_display()
+                raise serializers.ValidationError(
+                    {'status': f'{current_label} 상태에서는 이 단계로 바꿀 수 없습니다 (현재 상태: {current_label}).'}
+                )
         return attrs
 
     def get_team_count(self, obj):

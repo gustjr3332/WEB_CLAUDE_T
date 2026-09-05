@@ -1,3 +1,4 @@
+from django.db import IntegrityError, transaction
 from django.db.models import Avg, BooleanField, Count, Exists, OuterRef, Prefetch, Value
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action
@@ -237,14 +238,24 @@ class ScoreViewSet(viewsets.ModelViewSet):
         ensure_contest_status(contest, SCORING_STATUSES, self.SCORING_LOCKED_MESSAGE)
         # 같은 심사위원이 같은 라운드에 다시 POST 하면 기존 점수를 덮어쓴다 (upsert).
         # unique_together 위반으로 500 이 나는 대신, 탭이 여러 개여도 안전하게 저장된다.
-        existing = Score.objects.filter(
-            submission=submission,
-            judge=judge,
-            round=serializer.validated_data.get('round', Score.Round.PRELIMINARY),
-        ).first()
-        if existing is not None:
-            serializer.instance = existing
-        serializer.save(judge=judge)
+        # select_for_update 로 이미 있는 행은 잠가서 두 탭이 "수정"으로 겹치는 경우를 막는다.
+        # 하지만 두 탭이 모두 "아직 없음"을 보고 동시에 새로 만들 때는 잠글 행 자체가 없으므로,
+        # 그 경우에 unique_together 가 막아주는 IntegrityError 를 잡아 재시도해 upsert로 만든다.
+        round_value = serializer.validated_data.get('round', Score.Round.PRELIMINARY)
+        for attempt in range(2):
+            try:
+                with transaction.atomic():
+                    existing = Score.objects.select_for_update().filter(
+                        submission=submission, judge=judge, round=round_value,
+                    ).first()
+                    if existing is not None:
+                        serializer.instance = existing
+                    serializer.save(judge=judge)
+                return
+            except IntegrityError:
+                if attempt == 1:
+                    raise
+                serializer.instance = None
 
     def perform_update(self, serializer):
         ensure_contest_status(

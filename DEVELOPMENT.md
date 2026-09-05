@@ -321,23 +321,20 @@ External URL은 외부 접속용이라 Render 내부 URL과 다르고, 무료 DB
   - 팀 이름 중복 시 DRF 기본 영문 메시지 대신 한국어 메시지(`이미 이 대회에 같은 이름의 팀이
     있습니다.`)를 주도록 `TeamSerializer`에 `UniqueTogetherValidator` 명시(다른 시리얼라이저와
     통일).
-
-### 남은 작업
-
-- **(code-review 발견, 미착수) 대회 상태 전이 검증 없음** — 서버가 `recruiting → ongoing →
-  judging → closed` 순서를 전혀 검사하지 않아, 운영자가 임의 상태로 바로 점프하거나
-  역행시킬 수 있다(`PATCH /api/contests/<slug>/ {"status": "closed"}`를 `recruiting`에서
-  바로 보내도 성공). 고칠 때 지킬 것: **상태 전이는 지금처럼 운영자(staff, admin)만 가능해야
-  하고, 그 외에는 건드릴 수조차 없어야 한다** — `IsOrganizerOrReadOnly`가 이미 이 경계를
-  지키고 있으니 새 검증(`ALLOWED_NEXT_STATUS` 같은 인접 상태 맵)은 그 권한 체크를 대체하지
-  말고 `ContestSerializer.validate()` 안에 추가할 것. 프론트 `StatusControl`
-  (`ContestDetail.tsx`)도 현재 상태에서 진행 불가능한 버튼까지 다 활성화되어 있어 같이
-  손봐야 한다.
-- **(code-review 발견, 미착수) `ScoreViewSet.perform_create` upsert 레이스 컨디션** — 같은
-  심사위원이 탭 두 개로 거의 동시에 같은 라운드를 제출하면 체크(`existing = ...`)와
-  저장(`serializer.save`) 사이의 간극 때문에 `unique_together` 위반 500이 날 수 있다(정확히
-  이 upsert가 막으려던 케이스). `select_for_update()`나 `transaction.atomic()` + 재시도로
-  막아야 함.
+- **`/code-review` 결과 반영 — 대회 상태 전이 검증 + 채점 레이스 컨디션 수정** (2026-09-05)
+  - **버그 수정** — 서버가 `recruiting → ongoing → judging → closed` 순서를 전혀 검사하지
+    않아 운영자가 임의 상태로 바로 점프하거나 역행시킬 수 있던 문제.
+    `ContestSerializer.ALLOWED_NEXT_STATUS`(인접 상태 맵)를 `validate()`에 추가해 제자리 이동
+    또는 바로 다음 단계로만 전이를 허용. **상태를 바꿀 수 있는 사람은 그대로 운영자(staff,
+    admin)뿐이다** — 이 검증은 `ContestViewSet.permission_classes = [IsOrganizerOrReadOnly]`
+    (누가 바꾸는지)를 대체하지 않고, 그 위에 무엇으로 바꿀 수 있는지만 추가한 것. 프론트
+    `StatusControl`(`ContestDetail.tsx`)도 현재 상태의 바로 다음 단계 버튼만 활성화하도록
+    수정.
+  - **버그 수정** — `ScoreViewSet.perform_create`의 upsert가 조회(`existing = ...`)와
+    저장 사이의 간극 때문에 같은 심사위원이 탭 두 개로 거의 동시에 제출하면
+    `unique_together` 위반 500이 날 수 있던 문제. `select_for_update()` + `transaction.atomic()`
+    으로 기존 행이 있는 경우를 잠그고, 두 트랜잭션이 동시에 새 행을 만들려는 경우까지 막도록
+    `IntegrityError`를 잡아 한 번 재시도(재조회 후 업데이트)하게 함.
 
 - **학과/동아리 공모전 시범 적용** — 소규모 실사용 파일럿 진행, 피드백 반영해 반복 개선.
   운영자 계정은 `python manage.py createsuperuser`(또는 admin에서 `is_staff` 체크)로 만든다.
