@@ -1,8 +1,10 @@
+from datetime import timedelta
+
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from rest_framework.validators import UniqueTogetherValidator
 
-from .models import Contest, Judge, Participant, Score, Submission, Team
+from .models import Award, Contest, Judge, Participant, Score, Submission, Team
 
 User = get_user_model()
 
@@ -42,11 +44,18 @@ class SubmissionSerializer(serializers.ModelSerializer):
 class TeamSerializer(serializers.ModelSerializer):
     participants = ParticipantSerializer(many=True, read_only=True)
     submission = SubmissionSerializer(read_only=True)
+    # 발표 시작/종료 시각은 저장된 값이 아니라 contest.presentation_start_at 과
+    # presentation_minutes 로부터 매번 계산한다 — 발표 시간을 조정해도 재배정 없이 즉시 반영된다.
+    presentation_starts_at = serializers.SerializerMethodField()
+    presentation_ends_at = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
-        fields = ['id', 'contest', 'name', 'created_at', 'participants', 'submission']
-        read_only_fields = ['created_at']
+        fields = [
+            'id', 'contest', 'name', 'created_at', 'participants', 'submission',
+            'presentation_order', 'presentation_starts_at', 'presentation_ends_at',
+        ]
+        read_only_fields = ['created_at', 'presentation_order']
         validators = [
             UniqueTogetherValidator(
                 queryset=Team.objects.all(),
@@ -54,6 +63,24 @@ class TeamSerializer(serializers.ModelSerializer):
                 message='이미 이 대회에 같은 이름의 팀이 있습니다.',
             ),
         ]
+
+    def _slot_bounds(self, obj):
+        contest = obj.contest
+        if obj.presentation_order is None or contest.presentation_start_at is None:
+            return None, None
+        offset = timedelta(minutes=contest.presentation_minutes * (obj.presentation_order - 1))
+        start = contest.presentation_start_at + offset
+        end = start + timedelta(minutes=contest.presentation_minutes)
+        return start, end
+
+    def get_presentation_starts_at(self, obj):
+        start, _ = self._slot_bounds(obj)
+        return serializers.DateTimeField().to_representation(start) if start else None
+
+    def get_presentation_ends_at(self, obj):
+        _, end = self._slot_bounds(obj)
+        end = serializers.DateTimeField().to_representation(end) if end else None
+        return end
 
 
 class ContestSerializer(serializers.ModelSerializer):
@@ -80,6 +107,7 @@ class ContestSerializer(serializers.ModelSerializer):
         fields = [
             'slug', 'name', 'description', 'status',
             'start_at', 'end_at', 'created_at', 'updated_at', 'team_count', 'is_judge',
+            'presentation_start_at', 'presentation_minutes',
         ]
         read_only_fields = ['created_at', 'updated_at']
 
@@ -170,3 +198,16 @@ class ScoreboardEntrySerializer(serializers.Serializer):
     average_score = serializers.DecimalField(max_digits=6, decimal_places=2, allow_null=True)
     vote_count = serializers.IntegerField()
     rank = serializers.IntegerField(allow_null=True)
+
+
+class AwardSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Award
+        fields = ['id', 'contest', 'rank', 'title']
+        validators = [
+            UniqueTogetherValidator(
+                queryset=Award.objects.all(),
+                fields=['contest', 'rank'],
+                message='이미 이 등수에 배정된 상이 있습니다.',
+            ),
+        ]

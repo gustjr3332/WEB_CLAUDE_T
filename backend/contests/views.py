@@ -1,13 +1,21 @@
 from django.db import IntegrityError, transaction
-from django.db.models import Avg, BooleanField, Count, Exists, OuterRef, Prefetch, Value
+from django.db.models import Avg, BooleanField, Case, Count, Exists, OuterRef, Prefetch, Value, When
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
-from .models import Contest, Judge, Participant, Score, Submission, Team
-from .permissions import IsAssignedJudge, IsOrganizerOrReadOnly, IsTeamMemberOrReadOnly
+from .models import Award, Contest, Judge, Participant, Score, Submission, Team
+from .permissions import (
+    IsAssignedJudge,
+    IsOrganizer,
+    IsOrganizerOrReadOnly,
+    IsTeamMemberOrReadOnly,
+)
 from .serializers import (
+    AwardSerializer,
     ContestSerializer,
     JudgeSerializer,
     MeSerializer,
@@ -70,8 +78,19 @@ class ContestViewSet(viewsets.ModelViewSet):
         Teams without any score in a round come last with ``rank: null``.
         Costs a fixed number of queries regardless of team/score count: one for
         teams (submissions joined) and one grouped aggregate for scores.
+
+        ``final`` round is the composite score (코드/기능 예선 점수 + 발표 점수) and stays
+        hidden from the public until the organizer reveals it at the awards ceremony —
+        only staff and judges assigned to this contest receive those entries. Everyone
+        still sees ``preliminary`` live, same as before.
         """
         contest = self.get_object()
+        user = request.user
+        is_privileged = bool(
+            user
+            and user.is_authenticated
+            and (user.is_staff or Judge.objects.filter(contest=contest, user=user).exists())
+        )
         teams = list(contest.teams.select_related('submission'))
         aggregates = (
             Score.objects.filter(submission__team__contest=contest)
@@ -80,8 +99,12 @@ class ContestViewSet(viewsets.ModelViewSet):
         )
         by_key = {(a['submission__team_id'], a['round']): a for a in aggregates}
 
+        visible_rounds = (
+            Score.Round.choices if is_privileged
+            else [c for c in Score.Round.choices if c[0] != Score.Round.FINAL]
+        )
         entries = []
-        for round_value, _ in Score.Round.choices:
+        for round_value, _ in visible_rounds:
             round_entries = []
             for team in teams:
                 submission = getattr(team, 'submission', None)
@@ -115,6 +138,41 @@ class ContestViewSet(viewsets.ModelViewSet):
 
         serializer = ScoreboardEntrySerializer(entries, many=True)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsOrganizerOrReadOnly])
+    def assign_presentation_order(self, request, slug=None):
+        """Lock in the presentation running order and start time (organizer only).
+
+        Order follows submission time (earliest first); teams that never submitted go
+        last, alphabetically. Re-running this reassigns every team's slot, so organizers
+        can call it again after late drops/additions before presentations start.
+        """
+        contest = self.get_object()
+        start_at_raw = request.data.get('start_at')
+        if start_at_raw:
+            start_at = parse_datetime(start_at_raw)
+            if start_at is None:
+                return Response(
+                    {'start_at': ['시작 시각 형식이 올바르지 않습니다 (ISO 8601).']},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            start_at = timezone.now()
+
+        teams = list(
+            contest.teams.select_related('submission').order_by(
+                Case(When(submission__isnull=True, then=Value(1)), default=Value(0)),
+                'submission__submitted_at',
+                'name',
+            )
+        )
+        for index, team in enumerate(teams, start=1):
+            team.presentation_order = index
+        Team.objects.bulk_update(teams, ['presentation_order'])
+
+        contest.presentation_start_at = start_at
+        contest.save(update_fields=['presentation_start_at'])
+        return Response(ContestSerializer(contest, context=self.get_serializer_context()).data)
 
 
 class TeamViewSet(viewsets.ModelViewSet):
@@ -262,3 +320,20 @@ class ScoreViewSet(viewsets.ModelViewSet):
             serializer.instance.submission.team.contest, SCORING_STATUSES, self.SCORING_LOCKED_MESSAGE
         )
         serializer.save()
+
+
+class AwardViewSet(viewsets.ModelViewSet):
+    """rank → 상 이름(대상/최우수상/창의상 등) 설정. 시상식 화면이 최종 순위와 엮어 호명하는
+    데 쓰므로, 종합 순위와 마찬가지로 발표 전까지는 운영자만 볼 수 있게 전체를 staff 전용으로
+    막는다(IsOrganizer는 SAFE_METHODS 도 예외를 두지 않는다)."""
+
+    serializer_class = AwardSerializer
+    permission_classes = [IsOrganizer]
+    http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
+
+    def get_queryset(self):
+        queryset = Award.objects.all()
+        contest_slug = self.request.query_params.get('contest')
+        if contest_slug:
+            queryset = queryset.filter(contest__slug=contest_slug)
+        return queryset

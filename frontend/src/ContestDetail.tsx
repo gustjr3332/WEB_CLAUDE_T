@@ -13,7 +13,10 @@ import {
   upsertScore,
   upsertSubmission,
 } from './api';
+import { AwardCeremony } from './AwardCeremony';
+import { CountdownTimer } from './CountdownTimer';
 import { ROUND_LABEL, ROUNDS, STATUS_HINT, STATUS_LABEL, STATUS_ORDER } from './labels';
+import { PresentationSchedule } from './PresentationSchedule';
 import { canFormTeams, canScore, canSubmit, isLive } from './rules';
 import { SubmissionReviewPanel } from './SubmissionReview';
 import type {
@@ -131,6 +134,10 @@ export function ContestDetail({
     };
   }, [polling, refreshLive]);
 
+  useEffect(() => {
+    if (round === 'final' && !isJudge && !isOrganizer) setRound('preliminary');
+  }, [round, isJudge, isOrganizer]);
+
   async function handleCreateTeam(e: React.FormEvent) {
     e.preventDefault();
     setStatus('');
@@ -153,6 +160,10 @@ export function ContestDetail({
     }
   }
 
+  // final(결선) 라운드는 발표 점수를 포함한 종합 점수라 시상 전까지 비공개다. 서버가 이미
+  // scoreboard 응답에서 걸러 보내지만, 탭 자체도 심사위원·운영자에게만 보여준다.
+  const canSeeFinal = isJudge || isOrganizer;
+  const visibleRounds = canSeeFinal ? ROUNDS : ROUNDS.filter((r) => r !== 'final');
   const visibleEntries = scoreboard.filter((entry) => entry.round === round);
 
   return (
@@ -171,6 +182,13 @@ export function ContestDetail({
         <p className="detail-dates">
           {formatDateTime(contest.start_at)} – {formatDateTime(contest.end_at)}
         </p>
+        {contest.status === 'ongoing' && (
+          <CountdownTimer
+            targetIso={contest.end_at}
+            label="대회 종료까지"
+            expiredLabel="대회 종료 시각이 지났습니다"
+          />
+        )}
         {contest.description && <p className="contest-description">{contest.description}</p>}
         {isOrganizer && <StatusControl contest={contest} onUpdated={onContestUpdated} />}
       </div>
@@ -179,7 +197,7 @@ export function ContestDetail({
         <div className="scoreboard-head">
           <h3 className="section-heading">스코어보드</h3>
           <div className="seg-tabs" role="tablist" aria-label="라운드">
-            {ROUNDS.map((r) => (
+            {visibleRounds.map((r) => (
               <button
                 key={r}
                 type="button"
@@ -194,6 +212,11 @@ export function ContestDetail({
           </div>
           <LiveIndicator polling={polling} error={liveError} lastUpdated={lastUpdated} />
         </div>
+        {!canSeeFinal && (
+          <p className="scoreboard-privacy-hint">
+            발표 점수를 포함한 종합 순위는 비공개이며, 시상식에서 공개됩니다.
+          </p>
+        )}
         <ScoreboardTable entries={visibleEntries} />
       </div>
 
@@ -234,6 +257,17 @@ export function ContestDetail({
         </div>
       </div>
 
+      <PresentationSchedule
+        contest={contest}
+        teams={teams}
+        isOrganizer={isOrganizer}
+        onAssigned={(updated) => {
+          onContestUpdated(updated);
+          // 팀별 presentation_order/시각은 /teams/ 응답에만 있어 대회 갱신만으론 안 보인다.
+          refreshLive();
+        }}
+      />
+
       {isJudge && (
         <div>
           <h3 className="section-heading">심사하기</h3>
@@ -256,6 +290,13 @@ export function ContestDetail({
           <h3 className="section-heading">심사위원 배정</h3>
           <JudgeAssignPanel contestSlug={contest.slug} judges={judges} onChanged={load} />
         </div>
+      )}
+
+      {isOrganizer && (
+        <AwardCeremony
+          contestSlug={contest.slug}
+          finalScoreboard={scoreboard.filter((entry) => entry.round === 'final')}
+        />
       )}
     </section>
   );

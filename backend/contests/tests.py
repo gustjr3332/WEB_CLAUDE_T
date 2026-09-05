@@ -5,7 +5,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import Contest, Judge, Score, Submission, Team
+from .models import Award, Contest, Judge, Score, Submission, Team
 
 User = get_user_model()
 
@@ -550,6 +550,8 @@ class ScoreboardRankingTests(APITestCase):
         self.make_scored_team('팀 예선강자', ['10', '10'], final_values=['6', '6'])
         self.make_scored_team('팀 결선강자', ['7', '7'], final_values=['9', '9'])
 
+        # final(종합) 순위는 공개되지 않으므로 심사위원으로 조회한다.
+        self.client.force_authenticate(self.judges[0].user)
         prelim = self.board('preliminary')
         final = self.board('final')
         self.assertEqual(prelim[0]['team_name'], '팀 예선강자')
@@ -557,11 +559,152 @@ class ScoreboardRankingTests(APITestCase):
         self.assertEqual(final[0]['rank'], 1)
         self.assertEqual(final[1]['rank'], 2)
 
-    def test_scoreboard_lists_every_team_in_every_round(self):
+    def test_scoreboard_lists_every_team_in_every_round_for_judge(self):
         self.make_scored_team('팀 A', ['9'])
         Team.objects.create(contest=self.contest, name='팀 B')
 
+        self.client.force_authenticate(self.judges[0].user)
         res = self.client.get(f'/api/contests/{self.contest.slug}/scoreboard/')
         self.assertEqual(len(res.data), 4)  # 2 teams x 2 rounds
         rounds = [e['round'] for e in res.data]
         self.assertEqual(rounds, ['preliminary', 'preliminary', 'final', 'final'])
+
+
+class ScoreboardPrivacyTests(APITestCase):
+    """예선(코드/기능) 점수는 항상 공개, 결선(발표 포함 종합) 점수는 시상 전까지 비공개."""
+
+    def setUp(self):
+        self.contest = make_contest(status=Contest.Status.JUDGING)
+        self.team = Team.objects.create(contest=self.contest, name='팀 A')
+        submission = Submission.objects.create(team=self.team, title='제출물 A')
+        self.judge_user = User.objects.create_user('judge1', password='pw12345678')
+        judge = Judge.objects.create(contest=self.contest, user=self.judge_user)
+        self.staff = User.objects.create_user('staffer', password='pw12345678', is_staff=True)
+        self.outsider = User.objects.create_user('outsider', password='pw12345678')
+        Score.objects.create(submission=submission, judge=judge, round='preliminary', value='9')
+        Score.objects.create(submission=submission, judge=judge, round='final', value='8')
+
+    def rounds_in(self, res):
+        return {e['round'] for e in res.data}
+
+    def test_anonymous_sees_only_preliminary(self):
+        res = self.client.get(f'/api/contests/{self.contest.slug}/scoreboard/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.rounds_in(res), {'preliminary'})
+
+    def test_logged_in_non_judge_sees_only_preliminary(self):
+        self.client.force_authenticate(self.outsider)
+        res = self.client.get(f'/api/contests/{self.contest.slug}/scoreboard/')
+        self.assertEqual(self.rounds_in(res), {'preliminary'})
+
+    def test_assigned_judge_sees_both_rounds(self):
+        self.client.force_authenticate(self.judge_user)
+        res = self.client.get(f'/api/contests/{self.contest.slug}/scoreboard/')
+        self.assertEqual(self.rounds_in(res), {'preliminary', 'final'})
+
+    def test_staff_sees_both_rounds(self):
+        self.client.force_authenticate(self.staff)
+        res = self.client.get(f'/api/contests/{self.contest.slug}/scoreboard/')
+        self.assertEqual(self.rounds_in(res), {'preliminary', 'final'})
+
+
+class PresentationScheduleTests(APITestCase):
+    def setUp(self):
+        self.organizer = User.objects.create_user('organizer', password='pw12345678', is_staff=True)
+        self.participant = User.objects.create_user('participant', password='pw12345678')
+        self.contest = make_contest()
+        self.team_no_submission = Team.objects.create(contest=self.contest, name='팀 나중')
+        self.team_with_submission = Team.objects.create(contest=self.contest, name='팀 먼저')
+        Submission.objects.create(team=self.team_with_submission, title='제출물')
+
+    def test_organizer_can_assign_presentation_order(self):
+        self.client.force_authenticate(self.organizer)
+        res = self.client.post(
+            f'/api/contests/{self.contest.slug}/assign_presentation_order/',
+            {'start_at': '2026-09-05T10:00:00Z'},
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.contest.refresh_from_db()
+        self.assertIsNotNone(self.contest.presentation_start_at)
+
+        self.team_with_submission.refresh_from_db()
+        self.team_no_submission.refresh_from_db()
+        # 제출한 팀이 먼저, 미제출 팀은 뒤로.
+        self.assertEqual(self.team_with_submission.presentation_order, 1)
+        self.assertEqual(self.team_no_submission.presentation_order, 2)
+
+    def test_non_organizer_cannot_assign_presentation_order(self):
+        self.client.force_authenticate(self.participant)
+        res = self.client.post(f'/api/contests/{self.contest.slug}/assign_presentation_order/')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.team_with_submission.refresh_from_db()
+        self.assertIsNone(self.team_with_submission.presentation_order)
+
+    def test_team_serializer_exposes_computed_slot_times(self):
+        self.client.force_authenticate(self.organizer)
+        self.client.post(
+            f'/api/contests/{self.contest.slug}/assign_presentation_order/',
+            {'start_at': '2026-09-05T10:00:00Z'},
+        )
+        res = self.client.get(f'/api/teams/?contest={self.contest.slug}')
+        by_id = {t['id']: t for t in res.data}
+        first = by_id[self.team_with_submission.id]
+        second = by_id[self.team_no_submission.id]
+        self.assertEqual(first['presentation_starts_at'], '2026-09-05T10:00:00Z')
+        self.assertEqual(first['presentation_ends_at'], '2026-09-05T10:10:00Z')
+        self.assertEqual(second['presentation_starts_at'], '2026-09-05T10:10:00Z')
+
+    def test_invalid_start_at_is_rejected(self):
+        self.client.force_authenticate(self.organizer)
+        res = self.client.post(
+            f'/api/contests/{self.contest.slug}/assign_presentation_order/',
+            {'start_at': 'not-a-date'},
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class AwardApiTests(APITestCase):
+    def setUp(self):
+        self.organizer = User.objects.create_user('organizer', password='pw12345678', is_staff=True)
+        self.participant = User.objects.create_user('participant', password='pw12345678')
+        self.contest = make_contest()
+
+    def test_organizer_can_create_award(self):
+        self.client.force_authenticate(self.organizer)
+        res = self.client.post('/api/awards/', {
+            'contest': self.contest.slug, 'rank': 1, 'title': '대상',
+        })
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(Award.objects.filter(contest=self.contest, rank=1, title='대상').exists())
+
+    def test_duplicate_rank_is_rejected(self):
+        Award.objects.create(contest=self.contest, rank=1, title='대상')
+        self.client.force_authenticate(self.organizer)
+        res = self.client.post('/api/awards/', {
+            'contest': self.contest.slug, 'rank': 1, 'title': '최우수상',
+        })
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_non_organizer_cannot_read_awards(self):
+        Award.objects.create(contest=self.contest, rank=1, title='대상')
+        self.client.force_authenticate(self.participant)
+        res = self.client.get(f'/api/awards/?contest={self.contest.slug}')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_anonymous_cannot_read_awards(self):
+        Award.objects.create(contest=self.contest, rank=1, title='대상')
+        res = self.client.get(f'/api/awards/?contest={self.contest.slug}')
+        # 인증 정보 자체가 없으므로 DRF 관례상 403이 아니라 401(다른 organizer-only 엔드포인트와 동일).
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_organizer_can_update_and_delete_award(self):
+        award = Award.objects.create(contest=self.contest, rank=2, title='우수상')
+        self.client.force_authenticate(self.organizer)
+        res = self.client.patch(f'/api/awards/{award.id}/', {'title': '최우수상'})
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        award.refresh_from_db()
+        self.assertEqual(award.title, '최우수상')
+
+        res = self.client.delete(f'/api/awards/{award.id}/')
+        self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Award.objects.filter(pk=award.id).exists())

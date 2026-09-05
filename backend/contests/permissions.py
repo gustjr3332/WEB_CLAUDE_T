@@ -29,6 +29,14 @@ class IsTeamMemberOrReadOnly(permissions.BasePermission):
         return Participant.objects.filter(team=team, user=request.user).exists()
 
 
+class IsOrganizer(permissions.BasePermission):
+    """Staff only, for every method including reads — used for organizer-private data
+    (award/ceremony config) that must not leak to participants before the reveal."""
+
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.is_staff)
+
+
 class IsAssignedJudge(permissions.BasePermission):
     """Only a judge assigned to the submission's contest may create/update a score."""
 

@@ -16,6 +16,10 @@ class Contest(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.RECRUITING)
     start_at = models.DateTimeField()
     end_at = models.DateTimeField()
+    # 발표 일정: assign_presentation_order 가 채운다. 팀 발표 시작 시각은
+    # presentation_start_at + presentation_minutes * (team.presentation_order - 1) 로 계산한다.
+    presentation_start_at = models.DateTimeField(null=True, blank=True)
+    presentation_minutes = models.PositiveIntegerField(default=10, validators=[MinValueValidator(1)])
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -30,6 +34,8 @@ class Team(models.Model):
     contest = models.ForeignKey(Contest, related_name='teams', on_delete=models.CASCADE)
     name = models.CharField(max_length=100)
     created_at = models.DateTimeField(auto_now_add=True)
+    # 발표 순서(1부터). ContestViewSet.assign_presentation_order 가 한 번에 채운다.
+    presentation_order = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:
         ordering = ['name']
@@ -99,3 +105,18 @@ class Score(models.Model):
 
     def __str__(self):
         return f'{self.judge} -> {self.submission} ({self.round}): {self.value}'
+
+
+class Award(models.Model):
+    """시상식에서 rank 등수에 붙일 상 이름(대상/최우수상/창의상 등). rank 1이 최상위."""
+
+    contest = models.ForeignKey(Contest, related_name='awards', on_delete=models.CASCADE)
+    rank = models.PositiveIntegerField()
+    title = models.CharField(max_length=50)
+
+    class Meta:
+        ordering = ['rank']
+        unique_together = ('contest', 'rank')
+
+    def __str__(self):
+        return f'{self.contest_id} #{self.rank} {self.title}'

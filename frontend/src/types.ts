@@ -12,6 +12,10 @@ export interface Contest {
   team_count: number;
   /** 요청한 사용자가 이 대회의 심사위원인지 (서버 판단, 폴링으로 갱신). */
   is_judge: boolean;
+  /** 발표 일정의 시작 시각. assign_presentation_order 호출 전에는 null. */
+  presentation_start_at: string | null;
+  /** 팀당 발표 배정 시간(분). */
+  presentation_minutes: number;
 }
 
 export interface ContestInput {
@@ -46,6 +50,10 @@ export interface Team {
   created_at: string;
   participants: Participant[];
   submission: Submission | null;
+  /** 발표 순서(1부터). 아직 배정 전이면 null. */
+  presentation_order: number | null;
+  presentation_starts_at: string | null;
+  presentation_ends_at: string | null;
 }
 
 export type ScoreRound = 'preliminary' | 'final';
@@ -89,4 +97,12 @@ export interface ScoreboardEntry {
 export interface AuthTokens {
   access: string;
   refresh: string;
+}
+
+/** rank 1이 최상위 상. 시상식 전까지는 운영자만 볼 수 있다. */
+export interface Award {
+  id: number;
+  contest: string;
+  rank: number;
+  title: string;
 }

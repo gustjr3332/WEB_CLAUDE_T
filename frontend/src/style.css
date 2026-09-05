@@ -1065,3 +1065,252 @@ body {
     max-height: 200px;
   }
 }
+
+/* ---------- countdown timer ---------- */
+
+.countdown-timer {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 4px 0 0;
+  padding: 6px 12px;
+  border: 1px solid var(--live);
+  color: var(--live);
+  font-size: 0.82rem;
+}
+
+.countdown-timer .countdown-clock {
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.countdown-timer.urgent {
+  border-color: var(--danger);
+  color: var(--danger);
+  animation: countdown-pulse 1s ease-in-out infinite;
+}
+
+.countdown-timer.expired {
+  border-color: var(--muted);
+  color: var(--muted);
+}
+
+@keyframes countdown-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* ---------- scoreboard privacy hint ---------- */
+
+.scoreboard-privacy-hint {
+  margin: 8px 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* ---------- presentation schedule ---------- */
+
+.presentation-assign-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.presentation-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+
+.presentation-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.presentation-row.current {
+  background: var(--paper-raised);
+  border-left: 3px solid var(--judging);
+  padding-left: 8px;
+}
+
+.presentation-row.done {
+  color: var(--muted);
+}
+
+.presentation-order {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  min-width: 1.5em;
+  text-align: right;
+}
+
+.presentation-team {
+  flex: 1;
+  font-weight: 600;
+}
+
+.presentation-time {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.presentation-badge {
+  background: var(--judging);
+  color: var(--paper);
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 2px;
+}
+
+/* ---------- award management + ceremony ---------- */
+
+.award-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.award-form input[type='number'] {
+  width: 8em;
+}
+
+.award-form input[type='text'] {
+  flex: 1;
+}
+
+.award-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.award-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.award-rank {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  min-width: 3em;
+}
+
+.award-row input {
+  flex: 1;
+}
+
+.ceremony-open-btn {
+  background: var(--signal);
+  color: var(--paper);
+  border: none;
+  border-radius: 2px;
+  padding: 10px 18px;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ceremony-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  background: var(--ink);
+  color: var(--paper);
+  text-align: center;
+  padding: 24px;
+}
+
+.ceremony-close {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  background: none;
+  border: none;
+  color: var(--paper);
+  font-size: 2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ceremony-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  min-height: 8em;
+  justify-content: center;
+}
+
+.ceremony-hint {
+  color: var(--muted);
+  font-size: 1.1rem;
+}
+
+.ceremony-award-title {
+  font-size: clamp(2rem, 6vw, 4rem);
+  font-weight: 700;
+  color: var(--judging);
+  margin: 0;
+}
+
+.ceremony-team-name {
+  font-size: clamp(1.5rem, 5vw, 3rem);
+  font-weight: 700;
+  margin: 0;
+}
+
+.ceremony-award-title.reveal,
+.ceremony-team-name.reveal {
+  animation: ceremony-reveal 0.5s ease-out;
+}
+
+@keyframes ceremony-reveal {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.ceremony-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.ceremony-progress {
+  font-family: var(--font-mono);
+  color: var(--muted);
+}
+
+.ceremony-controls button {
+  background: var(--paper);
+  color: var(--ink);
+  border: none;
+  border-radius: 2px;
+  padding: 12px 28px;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+}

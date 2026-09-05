@@ -1,5 +1,6 @@
 import type {
   AuthTokens,
+  Award,
   Contest,
   ContestInput,
   ContestStatus,
@@ -159,6 +160,14 @@ export function fetchScoreboard(slug: string): Promise<ScoreboardEntry[]> {
   return request(`/contests/${slug}/scoreboard/`);
 }
 
+/** 발표 순서·시작 시각을 (재)배정한다 (운영자 전용). startAt 을 생략하면 지금 시각부터 배정. */
+export function assignPresentationOrder(slug: string, startAt?: string): Promise<Contest> {
+  return request(`/contests/${slug}/assign_presentation_order/`, {
+    method: 'POST',
+    body: JSON.stringify(startAt ? { start_at: startAt } : {}),
+  });
+}
+
 // ---------- teams ----------
 
 export function fetchTeams(contestSlug: string): Promise<Team[]> {
@@ -235,4 +244,25 @@ export function upsertSubmission(
     method: 'POST',
     body: JSON.stringify({ team: teamId, ...data }),
   });
+}
+
+// ---------- awards (organizer only) ----------
+
+export function fetchAwards(contestSlug: string): Promise<Award[]> {
+  return request(`/awards/?contest=${contestSlug}`);
+}
+
+export function createAward(contestSlug: string, rank: number, title: string): Promise<Award> {
+  return request('/awards/', {
+    method: 'POST',
+    body: JSON.stringify({ contest: contestSlug, rank, title }),
+  });
+}
+
+export function updateAward(id: number, title: string): Promise<Award> {
+  return request(`/awards/${id}/`, { method: 'PATCH', body: JSON.stringify({ title }) });
+}
+
+export function deleteAward(id: number): Promise<void> {
+  return request(`/awards/${id}/`, { method: 'DELETE' });
 }
